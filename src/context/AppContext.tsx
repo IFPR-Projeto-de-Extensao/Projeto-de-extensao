@@ -14,6 +14,9 @@ import {
   collection,
   doc,
   getDoc,
+  getDocs,
+  query,
+  where,
   onSnapshot,
   setDoc,
   updateDoc,
@@ -96,14 +99,63 @@ interface AppContextType {
 const AppContext = createContext<AppContextType | undefined>(undefined);
 
 const LOCAL_STORAGE_THEME_KEY = "ifpr_achados_perdidos_theme";
+const LOCAL_STORAGE_CURRENT_USER_KEY = "ifpr_achados_current_user";
+const LOCAL_STORAGE_ALL_USERS_KEY = "ifpr_achados_all_users";
 
 export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [items, setItems] = useState<LostFoundItem[]>([]);
   const [firebaseUser, setFirebaseUser] = useState<FirebaseUser | null>(null);
 
-  // Current User State
-  const [currentUser, setCurrentUser] = useState<User>(() => MOCK_USERS[0]);
-  const [allUsers, setAllUsers] = useState<User[]>(() => MOCK_USERS);
+  // Current User State with LocalStorage restoration
+  const [currentUser, setCurrentUser] = useState<User>(() => {
+    try {
+      const saved = localStorage.getItem(LOCAL_STORAGE_CURRENT_USER_KEY);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (parsed && parsed.id && parsed.email) {
+          return parsed;
+        }
+      }
+    } catch (e) {
+      console.warn("Erro ao carregar usuário salvo do localStorage:", e);
+    }
+    return MOCK_USERS[0];
+  });
+
+  const [allUsers, setAllUsers] = useState<User[]>(() => {
+    try {
+      const saved = localStorage.getItem(LOCAL_STORAGE_ALL_USERS_KEY);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          return parsed;
+        }
+      }
+    } catch (e) {
+      console.warn("Erro ao carregar usuários salvos do localStorage:", e);
+    }
+    return MOCK_USERS;
+  });
+
+  // Persist Current User changes to LocalStorage
+  useEffect(() => {
+    if (currentUser) {
+      try {
+        localStorage.setItem(LOCAL_STORAGE_CURRENT_USER_KEY, JSON.stringify(currentUser));
+      } catch (_) {}
+    } else {
+      localStorage.removeItem(LOCAL_STORAGE_CURRENT_USER_KEY);
+    }
+  }, [currentUser]);
+
+  // Persist All Users list to LocalStorage
+  useEffect(() => {
+    if (allUsers && allUsers.length > 0) {
+      try {
+        localStorage.setItem(LOCAL_STORAGE_ALL_USERS_KEY, JSON.stringify(allUsers));
+      } catch (_) {}
+    }
+  }, [allUsers]);
 
   // Claims state
   const [claims, setClaims] = useState<ItemClaim[]>([]);
@@ -199,10 +251,26 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
               await setDoc(doc(db, "users", fbUser.uid), { role: "ADMIN" }, { merge: true });
             }
             setCurrentUser(userData);
+            setAllUsers((prev) =>
+              prev.some((u) => u.id === userData.id || u.email.toLowerCase() === userEmail)
+                ? prev.map((u) => (u.email.toLowerCase() === userEmail ? userData : u))
+                : [...prev, userData]
+            );
           } else {
-            // Find if account already exists with this email in state or mock data
-            const existing = allUsers.find((u) => u.email.toLowerCase() === userEmail) ||
-              MOCK_USERS.find((u) => u.email.toLowerCase() === userEmail);
+            // Check if account already exists with this email in Firestore query
+            let existing: User | undefined;
+            try {
+              const q = query(collection(db, "users"), where("email", "==", userEmail));
+              const querySnap = await getDocs(q);
+              if (!querySnap.empty) {
+                existing = querySnap.docs[0].data() as User;
+              }
+            } catch (_) {}
+
+            if (!existing) {
+              existing = allUsers.find((u) => u.email.toLowerCase() === userEmail) ||
+                MOCK_USERS.find((u) => u.email.toLowerCase() === userEmail);
+            }
 
             const userObj: User = existing ? {
               ...existing,
@@ -211,13 +279,18 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             } : {
               id: fbUser.uid,
               name: fbUser.displayName || (isAdminEmail ? "Paulo Cauan" : "Usuário IFPR"),
-              email: fbUser.email || "",
+              email: fbUser.email || userEmail,
               role: isAdminEmail ? "ADMIN" : userEmail.includes("maria") ? "SERVIDOR" : "ALUNO",
               courseOrDept: isAdminEmail ? "Administração de TI & Campus Ivaiporã" : "Campus Ivaiporã",
               registrationNumber: fbUser.uid.substring(0, 10),
               avatarUrl: fbUser.photoURL || "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80",
             };
             setCurrentUser(userObj);
+            setAllUsers((prev) =>
+              prev.some((u) => u.email.toLowerCase() === userEmail)
+                ? prev.map((u) => (u.email.toLowerCase() === userEmail ? userObj : u))
+                : [...prev, userObj]
+            );
             await setDoc(doc(db, "users", fbUser.uid), userObj, { merge: true });
           }
         } catch (e) {
@@ -225,20 +298,21 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           const existing = allUsers.find((u) => u.email.toLowerCase() === userEmail) ||
             MOCK_USERS.find((u) => u.email.toLowerCase() === userEmail);
 
-          setCurrentUser(existing || {
+          const fallbackUser = existing ? { ...existing, id: fbUser.uid } : {
             id: fbUser.uid,
             name: fbUser.displayName || (isAdminEmail ? "Paulo Cauan" : "Usuário IFPR"),
-            email: fbUser.email || "",
+            email: fbUser.email || userEmail,
             role: isAdminEmail ? "ADMIN" : "ALUNO",
             courseOrDept: "Campus Ivaiporã",
             registrationNumber: fbUser.uid.substring(0, 10),
             avatarUrl: fbUser.photoURL || "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80",
-          });
+          };
+          setCurrentUser(fallbackUser);
         }
       }
     });
     return () => unsubscribe();
-  }, [allUsers]);
+  }, []);
 
   // Sync Items from Firestore
   useEffect(() => {
@@ -510,39 +584,83 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     pass: string,
     userData: Omit<User, "id">
   ) => {
+    const cleanEmail = email.trim().toLowerCase();
+
+    // 1. Check if user with this email already exists in local/state
+    const existingInState = allUsers.find((u) => u.email.toLowerCase() === cleanEmail) ||
+      MOCK_USERS.find((u) => u.email.toLowerCase() === cleanEmail);
+
+    if (existingInState) {
+      setCurrentUser(existingInState);
+      addToast(`Conta já existente para ${cleanEmail}! Login efetuado para ${existingInState.name}.`, "success");
+      return;
+    }
+
+    // 2. Query Firestore users collection for existing email
     try {
-      const res = await createUserWithEmailAndPassword(auth, email, pass);
-      const isAdminEmail = email.toLowerCase() === "paulocauan39@gmail.com";
+      const q = query(collection(db, "users"), where("email", "==", cleanEmail));
+      const querySnap = await getDocs(q);
+      if (!querySnap.empty) {
+        const existingDoc = querySnap.docs[0].data() as User;
+        setCurrentUser(existingDoc);
+        setAllUsers((prev) =>
+          prev.some((u) => u.email.toLowerCase() === cleanEmail)
+            ? prev.map((u) => (u.email.toLowerCase() === cleanEmail ? existingDoc : u))
+            : [...prev, existingDoc]
+        );
+        addToast(`Conta localizada para ${cleanEmail}! Login efetuado com sucesso.`, "success");
+        return;
+      }
+    } catch (_) {}
+
+    // 3. Create new Firebase account
+    try {
+      const res = await createUserWithEmailAndPassword(auth, cleanEmail, pass);
+      const isAdminEmail = cleanEmail === "paulocauan39@gmail.com";
       const newUserObj: User = {
         id: res.user.uid,
         ...userData,
-        email,
+        email: cleanEmail,
         role: isAdminEmail ? "ADMIN" : userData.role || "ALUNO",
         avatarUrl:
           userData.avatarUrl ||
           `https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80`,
       };
       setCurrentUser(newUserObj);
+      setAllUsers((prev) => [...prev.filter((u) => u.email.toLowerCase() !== cleanEmail), newUserObj]);
       try { await setDoc(doc(db, "users", res.user.uid), newUserObj); } catch (_) {}
-      addToast("Cadastro realizado com sucesso!", "success");
+      addToast(`Cadastro realizado com sucesso para ${newUserObj.name}!`, "success");
     } catch (e: any) {
       console.warn("Erro no cadastro por e-mail/senha:", e);
+
+      if (e.code === "auth/email-already-in-use") {
+        const existingAccount = allUsers.find((u) => u.email.toLowerCase() === cleanEmail) ||
+          MOCK_USERS.find((u) => u.email.toLowerCase() === cleanEmail);
+        if (existingAccount) {
+          setCurrentUser(existingAccount);
+          addToast(`Este e-mail já possui cadastro. Login efetuado para ${existingAccount.name}!`, "success");
+          return;
+        }
+      }
+
       if (e.code === "auth/operation-not-allowed" || e.code === "auth/network-request-failed") {
-        const isAdminEmail = email.toLowerCase() === "paulocauan39@gmail.com";
+        const isAdminEmail = cleanEmail === "paulocauan39@gmail.com";
         const newUserObj: User = {
-          id: "new_registered_" + Math.random().toString(36).substring(2, 8),
+          id: "registered_" + cleanEmail.replace(/[^a-z0-9]/g, "_"),
           ...userData,
-          email,
+          email: cleanEmail,
           role: isAdminEmail ? "ADMIN" : userData.role || "ALUNO",
           avatarUrl:
             userData.avatarUrl ||
             `https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80`,
         };
         setCurrentUser(newUserObj);
-        addToast("Cadastro e autenticação realizados com sucesso!", "success");
+        setAllUsers((prev) => [...prev.filter((u) => u.email.toLowerCase() !== cleanEmail), newUserObj]);
+        addToast(`Cadastro e autenticação mantidos com sucesso para ${newUserObj.name}!`, "success");
         return;
       }
-      let errMsg = "Erro no cadastro. Verifique os dados.";
+
+      let errMsg = "Erro no cadastro. Verifique os dados preenchidos.";
       if (e.code === "auth/email-already-in-use") {
         errMsg = "Este e-mail já está cadastrado. Alterne para a aba 'Entrar (Login)'.";
       } else if (e.code === "auth/weak-password") {
@@ -568,12 +686,15 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const logout = async () => {
     try {
       await signOut(auth);
-      setGoogleAccessToken(null);
-      setCurrentUser(MOCK_USERS[0]);
-      addToast("Sessão encerrada.", "info");
     } catch (e) {
-      console.error("Erro ao sair:", e);
+      console.warn("Aviso ao sair do Firebase Auth:", e);
     }
+    setGoogleAccessToken(null);
+    try {
+      localStorage.removeItem(LOCAL_STORAGE_CURRENT_USER_KEY);
+    } catch (_) {}
+    setCurrentUser(MOCK_USERS[0]);
+    addToast("Sessão encerrada com sucesso.", "info");
   };
 
   const updateUserRole = async (targetUserId: string, newRole: UserRole) => {
