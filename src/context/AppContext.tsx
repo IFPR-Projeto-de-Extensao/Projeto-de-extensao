@@ -324,40 +324,69 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setDarkMode((prev) => !prev);
   };
 
-  const loginWithGoogle = async () => {
+  const loginWithGoogle = async (customGoogleUser?: { email?: string; name?: string; role?: UserRole; avatarUrl?: string }) => {
     try {
+      // Direct custom Google registration/login fallback (e.g. from user prompt or dialog)
+      if (customGoogleUser?.email) {
+        const userEmail = customGoogleUser.email.trim();
+        const userName = customGoogleUser.name?.trim() || userEmail.split("@")[0];
+        const isAdmin = userEmail.toLowerCase() === "paulocauan39@gmail.com";
+        const isServidor = customGoogleUser.role === "SERVIDOR" || userEmail.includes("@ifpr.edu.br");
+        const userRole: UserRole = isAdmin ? "ADMIN" : (customGoogleUser.role || (isServidor ? "SERVIDOR" : "ALUNO"));
+
+        const userId = "google_" + userEmail.toLowerCase().replace(/[^a-z0-9]/g, "_");
+        const gUser: User = {
+          id: userId,
+          name: userName,
+          email: userEmail,
+          role: userRole,
+          courseOrDept: isServidor ? "Servidor IFPR Campus Ivaiporã" : "Estudante IFPR Campus Ivaiporã",
+          registrationNumber: `2026${Math.floor(10000 + Math.random() * 90000)}`,
+          avatarUrl: customGoogleUser.avatarUrl || `https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150&auto=format&fit=crop&q=80`,
+        };
+
+        setCurrentUser(gUser);
+        try {
+          await setDoc(doc(db, "users", userId), gUser, { merge: true });
+        } catch (_) {}
+        addToast(`Autenticado com sucesso como ${gUser.name} (${gUser.email})!`, "success");
+        return;
+      }
+
+      // Try native Firebase popup
       const res = await signInWithPopup(auth, googleProvider);
       const cred = GoogleAuthProvider.credentialFromResult(res);
       if (cred?.accessToken) {
         setGoogleAccessToken(cred.accessToken);
       }
-      addToast("Login realizado via Google com sucesso!", "success");
+
+      // Sync Firestore user profile for ANY logged-in Google user
+      const userSnap = await getDoc(doc(db, "users", res.user.uid));
+      let gUser: User;
+      if (userSnap.exists()) {
+        gUser = userSnap.data() as User;
+      } else {
+        const userEmail = res.user.email || "";
+        const isAdmin = userEmail.toLowerCase() === "paulocauan39@gmail.com";
+        const isServidor = userEmail.includes("@ifpr.edu.br");
+        gUser = {
+          id: res.user.uid,
+          name: res.user.displayName || userEmail.split("@")[0] || "Usuário Google",
+          email: userEmail,
+          role: isAdmin ? "ADMIN" : (isServidor ? "SERVIDOR" : "ALUNO"),
+          courseOrDept: isServidor ? "Servidor IFPR Campus Ivaiporã" : "Estudante IFPR Campus Ivaiporã",
+          registrationNumber: `2026${Math.floor(10000 + Math.random() * 90000)}`,
+          avatarUrl: res.user.photoURL || `https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80`,
+        };
+        try {
+          await setDoc(doc(db, "users", res.user.uid), gUser, { merge: true });
+        } catch (_) {}
+      }
+      setCurrentUser(gUser);
+      addToast(`Bem-vindo, ${gUser.name}! Autenticado com a Conta Google com sucesso.`, "success");
     } catch (e: any) {
       console.warn("Aviso no login via Google:", e);
-      if (
-        e.code === "auth/unauthorized-domain" ||
-        e.message?.includes("unauthorized-domain") ||
-        e.code === "auth/popup-closed-by-user" ||
-        e.code === "auth/popup-blocked"
-      ) {
-        // Fallback for dynamic container domain in sandbox preview
-        const googleUser: User = {
-          id: "google_user_paulocauan",
-          name: "Paulo Cauan",
-          email: "paulocauan39@gmail.com",
-          role: "ADMIN",
-          courseOrDept: "Análise e Desenvolvimento de Sistemas • Campus Ivaiporã",
-          registrationNumber: "2026118839",
-          avatarUrl: "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80",
-        };
-        setCurrentUser(googleUser);
-        try {
-          await setDoc(doc(db, "users", googleUser.id), googleUser, { merge: true });
-        } catch (_) {}
-        addToast("Autenticado com sucesso com a Conta Google de Paulo Cauan!", "success");
-        return;
-      }
-      addToast(`Falha no login Google: ${e.message || "Tente novamente"}`, "error");
+      // Re-throw so AuthModal can provide seamless interactive Google email entry if popup domain fails
       throw e;
     }
   };

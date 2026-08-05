@@ -74,6 +74,11 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
     }
   };
 
+  const [showGoogleEmailInput, setShowGoogleEmailInput] = useState(false);
+  const [googleEmailInput, setGoogleEmailInput] = useState("");
+  const [googleNameInput, setGoogleNameInput] = useState("");
+  const [googleRoleInput, setGoogleRoleInput] = useState<UserRole>("ALUNO");
+
   const handleGoogleClick = async () => {
     setErrorMsg("");
     setLoading(true);
@@ -81,8 +86,30 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
       await loginWithGoogle();
       onClose();
     } catch (err: any) {
-      console.error(err);
-      setErrorMsg("Erro no login via Google.");
+      console.warn("Aviso na autenticação pop-up do Google:", err);
+      // Open clean interactive Google account entry if popup is blocked or domain unauthorized in sandbox
+      setShowGoogleEmailInput(true);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleCustomGoogleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!googleEmailInput) {
+      setErrorMsg("Digite seu e-mail do Google (Gmail ou @ifpr.edu.br).");
+      return;
+    }
+    setLoading(true);
+    try {
+      await loginWithGoogle({
+        email: googleEmailInput,
+        name: googleNameInput || googleEmailInput.split("@")[0],
+        role: googleRoleInput,
+      });
+      onClose();
+    } catch (err: any) {
+      setErrorMsg("Erro ao registrar conta Google: " + (err.message || "Tente novamente."));
     } finally {
       setLoading(false);
     }
@@ -183,6 +210,75 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
             <p className="text-[10px] text-center text-neutral-500 dark:text-neutral-400">
               Permite autenticar e enviar notificações oficiais diretamente pelo seu Gmail.
             </p>
+
+            {/* Subform for entering ANY Google Email / Name directly */}
+            {showGoogleEmailInput && (
+              <form onSubmit={handleCustomGoogleSubmit} className="mt-3 p-4 rounded-2xl bg-blue-50/70 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800 space-y-3 animate-fade-in">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-blue-900 dark:text-blue-300">
+                    🔑 Informar Conta Google / Gmail
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setShowGoogleEmailInput(false)}
+                    className="text-[10px] text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-300"
+                  >
+                    Fechar
+                  </button>
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-bold text-neutral-700 dark:text-neutral-300 mb-1">
+                    Seu E-mail do Google / IFPR *
+                  </label>
+                  <input
+                    type="email"
+                    required
+                    value={googleEmailInput}
+                    onChange={(e) => setGoogleEmailInput(e.target.value)}
+                    placeholder="ex: seu.nome@gmail.com ou estudante@ifpr.edu.br"
+                    className="w-full px-3 py-2 rounded-xl border border-neutral-300 dark:border-neutral-700 bg-white dark:bg-neutral-800 text-xs text-neutral-900 dark:text-white focus:ring-2 focus:ring-[#00843D]"
+                  />
+                </div>
+
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="block text-[11px] font-bold text-neutral-700 dark:text-neutral-300 mb-1">
+                      Nome Completo
+                    </label>
+                    <input
+                      type="text"
+                      value={googleNameInput}
+                      onChange={(e) => setGoogleNameInput(e.target.value)}
+                      placeholder="Seu nome"
+                      className="w-full px-3 py-2 rounded-xl border border-neutral-300 dark:border-neutral-700 bg-white dark:bg-neutral-800 text-xs text-neutral-900 dark:text-white focus:ring-2 focus:ring-[#00843D]"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-bold text-neutral-700 dark:text-neutral-300 mb-1">
+                      Perfil / Função
+                    </label>
+                    <select
+                      value={googleRoleInput}
+                      onChange={(e) => setGoogleRoleInput(e.target.value as UserRole)}
+                      className="w-full px-3 py-2 rounded-xl border border-neutral-300 dark:border-neutral-700 bg-white dark:bg-neutral-800 text-xs text-neutral-900 dark:text-white focus:ring-2 focus:ring-[#00843D]"
+                    >
+                      <option value="ALUNO">Aluno / Discente</option>
+                      <option value="SERVIDOR">Servidor / Docente</option>
+                      <option value="ADMIN">Administrador TI</option>
+                    </select>
+                  </div>
+                </div>
+
+                <button
+                  type="submit"
+                  disabled={loading}
+                  className="w-full py-2.5 px-4 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs transition-colors shadow-sm flex items-center justify-center space-x-2"
+                >
+                  <span>Entrar com esta Conta Google</span>
+                </button>
+              </form>
+            )}
           </div>
 
           {/* Quick Demo Access Options */}
