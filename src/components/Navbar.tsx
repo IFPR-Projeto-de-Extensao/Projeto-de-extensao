@@ -18,6 +18,7 @@ import {
   GraduationCap,
   Building2,
   LogIn,
+  Sparkles,
 } from "lucide-react";
 
 export const Navbar: React.FC = () => {
@@ -41,7 +42,7 @@ export const Navbar: React.FC = () => {
 
   const unreadCount = notifications.filter((n) => !n.read).length;
 
-  const handleNavClick = (tab: "home" | "lost" | "found" | "register" | "dashboard" | "profile") => {
+  const handleNavClick = (tab: "home" | "lost" | "found" | "register" | "dashboard" | "profile" | "image_analyzer") => {
     setActiveTab(tab);
     setMobileMenuOpen(false);
   };
@@ -116,6 +117,18 @@ export const Navbar: React.FC = () => {
             >
               <CheckCircle2 className="w-4 h-4 text-[#22C55E]" />
               <span>Encontrados</span>
+            </button>
+
+            <button
+              onClick={() => handleNavClick("image_analyzer")}
+              className={`flex items-center space-x-1.5 px-3 py-2 rounded-lg text-sm font-bold transition-all ${
+                activeTab === "image_analyzer"
+                  ? "bg-emerald-500/15 text-[#00843D] dark:text-green-400 border border-[#00843D]/30"
+                  : "text-emerald-700 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-950/40"
+              }`}
+            >
+              <Sparkles className="w-4 h-4 text-amber-500 fill-amber-500" />
+              <span>Analisar Fotos (IA)</span>
             </button>
 
             <button
@@ -217,17 +230,26 @@ export const Navbar: React.FC = () => {
               )}
             </div>
 
-            {/* Dark Mode Toggle */}
+            {/* Dark Mode Toggle Switch */}
             <button
+              type="button"
               onClick={toggleDarkMode}
-              title={darkMode ? "Mudar para Modo Claro" : "Mudar para Modo Escuro"}
-              className="p-2 rounded-lg text-neutral-600 dark:text-neutral-300 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors"
+              aria-label="Alternar Tema Claro / Escuro"
+              title={darkMode ? "Alternar para Modo Claro" : "Alternar para Modo Escuro"}
+              className="relative inline-flex items-center h-8 w-14 rounded-full p-1 bg-neutral-200 dark:bg-neutral-800 border border-neutral-300 dark:border-neutral-700 transition-colors duration-300 cursor-pointer focus:outline-none focus:ring-2 focus:ring-[#00843D] shrink-0"
             >
-              {darkMode ? (
-                <Sun className="w-5 h-5 text-amber-400" />
-              ) : (
-                <Moon className="w-5 h-5 text-neutral-700" />
-              )}
+              <span className="sr-only">Alternar Tema</span>
+              <span
+                className={`flex items-center justify-center w-6 h-6 rounded-full bg-white dark:bg-neutral-900 shadow-md transform transition-transform duration-300 ${
+                  darkMode ? "translate-x-6" : "translate-x-0"
+                }`}
+              >
+                {darkMode ? (
+                  <Moon className="w-3.5 h-3.5 fill-amber-300 text-amber-300" />
+                ) : (
+                  <Sun className="w-3.5 h-3.5 text-amber-500 fill-amber-500" />
+                )}
+              </span>
             </button>
 
             {/* Role Switcher Pill (Quick Switch Demo User) */}
@@ -351,6 +373,18 @@ export const Navbar: React.FC = () => {
             <span>Objetos Encontrados</span>
           </button>
 
+          <button
+            onClick={() => handleNavClick("image_analyzer")}
+            className={`w-full flex items-center space-x-3 px-3 py-2.5 rounded-xl text-sm font-bold ${
+              activeTab === "image_analyzer"
+                ? "bg-emerald-500/15 text-[#00843D] dark:text-green-400 font-extrabold"
+                : "text-emerald-700 dark:text-emerald-400"
+            }`}
+          >
+            <Sparkles className="w-5 h-5 text-amber-500 fill-amber-500" />
+            <span>Analisar Fotos com Gemini (IA)</span>
+          </button>
+
           <div className="grid grid-cols-2 gap-2 pt-2">
             <button
               onClick={() => handleRegisterClick("PERDIDO")}
@@ -379,6 +413,35 @@ export const Navbar: React.FC = () => {
             <LayoutDashboard className="w-5 h-5 text-amber-500" />
             <span>Dashboard Administrativo</span>
           </button>
+
+          {/* Mobile Theme Toggle Switch */}
+          <div className="flex items-center justify-between py-2.5 px-3.5 rounded-xl bg-neutral-100 dark:bg-neutral-800/80 border border-neutral-200 dark:border-neutral-700/80 my-1">
+            <span className="text-xs font-bold text-neutral-800 dark:text-neutral-200 flex items-center gap-2">
+              {darkMode ? (
+                <Moon className="w-4 h-4 text-amber-400 fill-amber-400" />
+              ) : (
+                <Sun className="w-4 h-4 text-amber-500 fill-amber-500" />
+              )}
+              <span>{darkMode ? "Modo Escuro" : "Modo Claro"}</span>
+            </span>
+            <button
+              type="button"
+              onClick={toggleDarkMode}
+              className="relative inline-flex items-center h-7 w-12 rounded-full p-0.5 bg-neutral-200 dark:bg-neutral-700 border border-neutral-300 dark:border-neutral-600 transition-colors duration-300 cursor-pointer"
+            >
+              <span
+                className={`flex items-center justify-center w-5 h-5 rounded-full bg-white dark:bg-neutral-900 shadow-sm transform transition-transform duration-300 ${
+                  darkMode ? "translate-x-5 text-amber-300" : "translate-x-0 text-amber-500"
+                }`}
+              >
+                {darkMode ? (
+                  <Moon className="w-3 h-3 fill-amber-300 text-amber-300" />
+                ) : (
+                  <Sun className="w-3 h-3 text-amber-500 fill-amber-500" />
+                )}
+              </span>
+            </button>
+          </div>
 
           <button
             onClick={() => handleNavClick("profile")}

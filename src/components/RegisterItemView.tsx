@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { useApp } from "../context/AppContext";
 import { IFPR_LOCATIONS } from "../data/mockData";
 import { ItemCategory, LostFoundItem } from "../types";
@@ -16,6 +16,7 @@ import {
   Tag,
   Calendar,
   ShieldCheck,
+  Eye,
 } from "lucide-react";
 
 export const RegisterItemView: React.FC = () => {
@@ -26,6 +27,8 @@ export const RegisterItemView: React.FC = () => {
     setRegisterTypeSelection,
     setActiveTab,
     addToast,
+    prefilledItemFromAI,
+    setPrefilledItemFromAI,
   } = useApp();
 
   // Form State
@@ -42,9 +45,25 @@ export const RegisterItemView: React.FC = () => {
     "https://images.unsplash.com/photo-1584438784894-089d6a62b8fa?w=600&auto=format&fit=crop&q=80"
   );
 
-  // AI Freeform Text Prompt for Auto-fill
+  // AI States
   const [aiPrompt, setAiPrompt] = useState("");
   const [isAnalyzingAI, setIsAnalyzingAI] = useState(false);
+  const [isAnalyzingImage, setIsAnalyzingImage] = useState(false);
+
+  // Apply prefilled item from AI if available
+  useEffect(() => {
+    if (prefilledItemFromAI) {
+      if (prefilledItemFromAI.title) setTitle(prefilledItemFromAI.title);
+      if (prefilledItemFromAI.category) setCategory(prefilledItemFromAI.category);
+      if (prefilledItemFromAI.description) setDescription(prefilledItemFromAI.description);
+      if (prefilledItemFromAI.color) setColor(prefilledItemFromAI.color);
+      if (prefilledItemFromAI.brand) setBrand(prefilledItemFromAI.brand);
+      if (prefilledItemFromAI.imageUrl) setImageUrl(prefilledItemFromAI.imageUrl);
+      if (prefilledItemFromAI.location) setLocation(prefilledItemFromAI.location);
+      // Clear after consuming
+      setPrefilledItemFromAI(null);
+    }
+  }, [prefilledItemFromAI, setPrefilledItemFromAI]);
 
   const categoriesList: ItemCategory[] = [
     "Eletrônicos",
@@ -106,6 +125,61 @@ export const RegisterItemView: React.FC = () => {
   // Image Upload presets or Custom URL preview
   const handleImagePreset = (url: string) => {
     setImageUrl(url);
+  };
+
+  // Handle direct file upload for photo
+  const handleImageFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      if (file.size > 8 * 1024 * 1024) {
+        addToast("Por favor, selecione uma imagem menor que 8MB.", "error");
+        return;
+      }
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        const base64 = reader.result as string;
+        setImageUrl(base64);
+        analyzeImageWithGemini(base64);
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
+  // Analyze image with Gemini 3.1 Pro
+  const analyzeImageWithGemini = async (base64Data: string) => {
+    setIsAnalyzingImage(true);
+    try {
+      const res = await fetch("/api/ai/analyze-image", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ imageBase64: base64Data }),
+      });
+      const data = await res.json();
+      if (data.success && data.analysis) {
+        const a = data.analysis;
+        if (a.title) setTitle(a.title);
+        if (a.category && categoriesList.includes(a.category as ItemCategory)) {
+          setCategory(a.category as ItemCategory);
+        }
+        if (a.color) setColor(a.color);
+        if (a.brand) setBrand(a.brand);
+        if (a.description) {
+          setDescription(
+            `${a.description}${
+              a.distinctiveFeatures?.length
+                ? `\n\n• Marcas identificadas pela IA: ${a.distinctiveFeatures.join(", ")}`
+                : ""
+            }`
+          );
+        }
+        addToast("Gemini 3.1 Pro analisou a imagem e preencheu o formulário com sucesso!", "success");
+      }
+    } catch (err) {
+      console.error("Erro na visão Gemini:", err);
+      addToast("Não foi possível analisar a imagem. Digite os dados manualmente.", "error");
+    } finally {
+      setIsAnalyzingImage(false);
+    }
   };
 
   // Submit Handler
@@ -339,11 +413,16 @@ export const RegisterItemView: React.FC = () => {
           />
         </div>
 
-        {/* Foto do Objeto */}
-        <div className="space-y-2">
-          <label className="block text-xs font-bold text-neutral-700 dark:text-neutral-200">
-            Foto do Objeto (URL ou Presets de Exemplo)
-          </label>
+        {/* Foto do Objeto e Visão Gemini */}
+        <div className="space-y-3 p-4 rounded-2xl bg-neutral-50 dark:bg-neutral-800/50 border border-neutral-200 dark:border-neutral-700/60">
+          <div className="flex items-center justify-between">
+            <label className="block text-xs font-bold text-neutral-800 dark:text-neutral-200">
+              Foto do Objeto
+            </label>
+            <span className="text-[10px] text-[#00843D] dark:text-green-400 font-bold flex items-center gap-1">
+              <Sparkles className="w-3 h-3 text-amber-500 fill-amber-500" /> Visão Gemini 3.1 Pro Ativa
+            </span>
+          </div>
 
           <div className="flex flex-col sm:flex-row gap-3 items-center">
             <div className="relative flex-1 w-full">
@@ -352,33 +431,59 @@ export const RegisterItemView: React.FC = () => {
                 type="text"
                 value={imageUrl}
                 onChange={(e) => setImageUrl(e.target.value)}
-                placeholder="Cole a URL da foto..."
-                className="w-full pl-9 pr-3 py-2.5 rounded-xl bg-neutral-50 dark:bg-neutral-800 border border-neutral-300 dark:border-neutral-700 text-xs text-neutral-900 dark:text-white outline-none"
+                placeholder="Cole a URL da foto ou selecione um arquivo ao lado..."
+                className="w-full pl-9 pr-3 py-2.5 rounded-xl bg-white dark:bg-neutral-800 border border-neutral-300 dark:border-neutral-700 text-xs text-neutral-900 dark:text-white outline-none focus:ring-2 focus:ring-[#00843D]"
               />
             </div>
+
+            <label className="px-3.5 py-2.5 rounded-xl bg-neutral-200 dark:bg-neutral-700 hover:bg-neutral-300 dark:hover:bg-neutral-600 text-neutral-800 dark:text-neutral-100 text-xs font-bold cursor-pointer transition-colors flex items-center space-x-1.5 shrink-0">
+              <Upload className="w-4 h-4 text-[#00843D]" />
+              <span>Enviar Arquivo</span>
+              <input
+                type="file"
+                accept="image/*"
+                onChange={handleImageFileUpload}
+                className="hidden"
+              />
+            </label>
+
             <div className="w-12 h-12 rounded-xl bg-neutral-100 dark:bg-neutral-800 border border-neutral-300 dark:border-neutral-700 overflow-hidden shrink-0">
               <img src={imageUrl} alt="Preview" className="w-full h-full object-cover" />
             </div>
           </div>
 
-          <div className="pt-2">
-            <span className="text-[11px] text-neutral-500 block mb-1.5 font-semibold">
-              Ou selecione uma foto de amostra:
-            </span>
-            <div className="flex space-x-2 overflow-x-auto pb-1">
+          <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
+            <button
+              type="button"
+              onClick={() => analyzeImageWithGemini(imageUrl)}
+              disabled={isAnalyzingImage}
+              className="px-3.5 py-1.5 rounded-xl bg-[#00843D]/10 hover:bg-[#00843D]/20 text-[#00843D] dark:text-green-400 text-xs font-extrabold transition-colors border border-[#00843D]/20 flex items-center space-x-1.5 disabled:opacity-50"
+            >
+              {isAnalyzingImage ? (
+                <>
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  <span>Analisando foto...</span>
+                </>
+              ) : (
+                <>
+                  <Eye className="w-3.5 h-3.5 text-[#00843D]" />
+                  <span>Analisar Foto da URL com Gemini 3.1 Pro</span>
+                </>
+              )}
+            </button>
+
+            <div className="flex space-x-1.5 overflow-x-auto">
               {[
                 { label: "Garrafa", url: "https://images.unsplash.com/photo-1602143407151-7111542de6e8?w=600&auto=format&fit=crop&q=80" },
                 { label: "Calculadora", url: "https://images.unsplash.com/photo-1594980596870-8aa52a78d8cd?w=600&auto=format&fit=crop&q=80" },
-                { label: "Casio/Relógio", url: "https://images.unsplash.com/photo-1523275335684-37898b6baf30?w=600&auto=format&fit=crop&q=80" },
-                { label: "Carteira/Documento", url: "https://images.unsplash.com/photo-1627123424574-724758594e93?w=600&auto=format&fit=crop&q=80" },
-                { label: "Moletom/Roupa", url: "https://images.unsplash.com/photo-1556905055-8f358a7a47b2?w=600&auto=format&fit=crop&q=80" },
-                { label: "Chaves", url: "https://images.unsplash.com/photo-1582139329536-e7284fece509?w=600&auto=format&fit=crop&q=80" },
+                { label: "Casio", url: "https://images.unsplash.com/photo-1523275335684-37898b6baf30?w=600&auto=format&fit=crop&q=80" },
+                { label: "Carteira", url: "https://images.unsplash.com/photo-1627123424574-724758594e93?w=600&auto=format&fit=crop&q=80" },
               ].map((preset) => (
                 <button
                   type="button"
                   key={preset.label}
                   onClick={() => handleImagePreset(preset.url)}
-                  className="px-2.5 py-1.5 rounded-lg bg-neutral-100 dark:bg-neutral-800 text-[11px] font-medium text-neutral-700 dark:text-neutral-300 hover:bg-[#00843D] hover:text-white transition-colors border border-neutral-200 dark:border-neutral-700 shrink-0"
+                  className="px-2 py-1 rounded-lg bg-white dark:bg-neutral-800 text-[10px] font-medium text-neutral-700 dark:text-neutral-300 hover:bg-[#00843D] hover:text-white transition-colors border border-neutral-200 dark:border-neutral-700 shrink-0"
                 >
                   {preset.label}
                 </button>

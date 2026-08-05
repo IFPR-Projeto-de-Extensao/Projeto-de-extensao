@@ -97,6 +97,14 @@ export const HomeView: React.FC = () => {
           {/* Action Buttons */}
           <div className="pt-2 flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
             <button
+              onClick={() => setActiveTab("image_analyzer")}
+              className="px-6 py-3.5 rounded-2xl bg-[#00843D] hover:bg-[#006e33] text-white font-extrabold text-sm shadow-lg shadow-[#00843D]/30 transition-all transform hover:-translate-y-0.5 flex items-center justify-center space-x-2 border border-emerald-400/30"
+            >
+              <Sparkles className="w-5 h-5 text-amber-300 fill-amber-300" />
+              <span>Analisar Foto com IA Gemini</span>
+            </button>
+
+            <button
               onClick={() => handleRegister("PERDIDO")}
               className="px-6 py-3.5 rounded-2xl bg-[#EF4444] hover:bg-red-600 text-white font-bold text-sm shadow-lg shadow-red-900/30 transition-all transform hover:-translate-y-0.5 flex items-center justify-center space-x-2"
             >

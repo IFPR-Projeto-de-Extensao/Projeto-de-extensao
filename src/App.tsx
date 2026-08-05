@@ -7,6 +7,7 @@ import { ObjectsView } from "./components/ObjectsView";
 import { RegisterItemView } from "./components/RegisterItemView";
 import { DashboardView } from "./components/DashboardView";
 import { ProfileView } from "./components/ProfileView";
+import { ImageAnalyzerView } from "./components/ImageAnalyzerView";
 import { ItemDetailModal } from "./components/ItemDetailModal";
 import { QRCodeScannerModal } from "./components/QRCodeScannerModal";
 import { AIMatchModal } from "./components/AIMatchModal";
@@ -32,6 +33,7 @@ const MainContent: React.FC = () => {
         {activeTab === "register" && <RegisterItemView />}
         {activeTab === "dashboard" && <DashboardView />}
         {activeTab === "profile" && <ProfileView />}
+        {activeTab === "image_analyzer" && <ImageAnalyzerView />}
       </main>
 
       {/* Item Details Modal */}

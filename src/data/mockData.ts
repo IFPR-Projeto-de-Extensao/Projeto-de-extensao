@@ -22,6 +22,16 @@ export const MOCK_USERS: User[] = [
     phone: "(43) 98765-4321"
   },
   {
+    id: "u-paulocauan",
+    name: "Paulo Cauan",
+    email: "paulocauan39@gmail.com",
+    role: "ADMIN",
+    courseOrDept: "Administração Geral & TI - Campus Ivaiporã",
+    registrationNumber: "2026998811",
+    avatarUrl: "https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150&auto=format&fit=crop&q=80",
+    phone: "(43) 99999-8888"
+  },
+  {
     id: "u3",
     name: "Carlos Eduardo Machado",
     email: "carlos.machado@ifpr.edu.br",

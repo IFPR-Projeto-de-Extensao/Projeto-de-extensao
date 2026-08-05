@@ -71,7 +71,6 @@ A resposta DEVE ser estritamente no formato JSON definido no schema.`;
 
     const contents: any[] = [];
     if (imageBase64) {
-      // Remove prefix data:image/...;base64, if present
       const cleanBase64 = imageBase64.replace(/^data:image\/\w+;base64,/, "");
       contents.push({
         inlineData: {
@@ -87,8 +86,11 @@ A resposta DEVE ser estritamente no formato JSON definido no schema.`;
         : "Analise esta foto de objeto encontrado/perdido no IFPR e descreva com precisão.",
     });
 
+    // Use gemini-3.1-pro-preview for vision/images or complex requests, otherwise gemini-3.5-flash
+    const chosenModel = imageBase64 ? "gemini-3.1-pro-preview" : "gemini-3.5-flash";
+
     const response = await ai.models.generateContent({
-      model: "gemini-3.6-flash",
+      model: chosenModel,
       contents: contents.length === 1 ? contents[0] : { parts: contents },
       config: {
         systemInstruction,
@@ -139,6 +141,160 @@ A resposta DEVE ser estritamente no formato JSON definido no schema.`;
       success: false,
       error: error.message || "Erro interno ao processar inteligência artificial.",
     });
+  }
+});
+
+// Dedicated Vision & Image Understanding Endpoint using gemini-3.1-pro-preview
+app.post("/api/ai/analyze-image", async (req, res) => {
+  try {
+    const { imageBase64, customContext } = req.body;
+    const ai = getGenAIClient();
+
+    if (!imageBase64) {
+      return res.status(400).json({ error: "Imagem em formato Base64 não fornecida." });
+    }
+
+    if (!ai) {
+      return res.json({
+        success: true,
+        analysis: {
+          title: "Objeto Detectado na Foto",
+          category: "Outros",
+          color: "Análise visual pendente de chave API",
+          brand: "Não identificada",
+          condition: "Bom estado de conservação",
+          distinctiveFeatures: ["Detalhes visíveis na foto"],
+          suggestedSecretHint: "Iniciais ou marcas no verso",
+          description: "Análise realizada com fallback local. Defina GEMINI_API_KEY para visão multimodal avançada.",
+        },
+        fallback: true,
+      });
+    }
+
+    const cleanBase64 = imageBase64.replace(/^data:image\/\w+;base64,/, "");
+
+    const systemInstruction = `Você é um motor de Inteligência Artificial de Visão Computacional de última geração alimentado pelo Gemini 3.1 Pro no IFPR Campus Ivaiporã.
+Sua tarefa é analisar minuciosamente uma imagem enviada pelo usuário referente a um pertencente achado ou perdido no campus.
+Examine atentamente:
+1. Objeto principal, formato, utilidade e marca visualizável.
+2. Cores predominantes e detalhes cromáticos.
+3. Marcas de uso, adesivos, gravuras, danos, números de série ou inscrições (útil como pista de verificação).
+4. Sugestão de Pergunta/Pista Secreta de segurança para comprovar propriedade do objeto sem revelar aos impostores.
+5. Categoria oficial ("Eletrônicos", "Documentos & Cartões", "Roupas & Calçados", "Chaves", "Material Escolar & Livros", "Acessórios & Bijuterias", "Garrafas & Marmitas", "Guarda-chuvas", "Outros").
+Retorne um JSON rigorosamente estruturado conforme o schema.`;
+
+    const response = await ai.models.generateContent({
+      model: "gemini-3.1-pro-preview",
+      contents: {
+        parts: [
+          {
+            inlineData: {
+              mimeType: "image/jpeg",
+              data: cleanBase64,
+            },
+          },
+          {
+            text: customContext
+              ? `Contexto adicional do usuário: "${customContext}". Realize a análise completa da imagem.`
+              : "Analise esta fotografia de objeto com máxima precisão e descreva todos os aspectos para o cadastro no IFPR Ivaiporã.",
+          },
+        ],
+      },
+      config: {
+        systemInstruction,
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: Type.OBJECT,
+          properties: {
+            title: {
+              type: Type.STRING,
+              description: "Título resumido e preciso do objeto (ex: Relógio Digital Casio Vintage Prata)",
+            },
+            category: {
+              type: Type.STRING,
+              description: "Uma das categorias oficiais do IFPR",
+            },
+            color: {
+              type: Type.STRING,
+              description: "Cores detalhadas identificadas na foto",
+            },
+            brand: {
+              type: Type.STRING,
+              description: "Marca ou fabricante identificado na foto, ou 'Não identificada'",
+            },
+            condition: {
+              type: Type.STRING,
+              description: "Estado aparente de conservação (ex: Novo, Usado com riscos leves, etc)",
+            },
+            distinctiveFeatures: {
+              type: Type.ARRAY,
+              items: { type: Type.STRING },
+              description: "Lista de marcações, adesivos, riscos, chaveiros ou traços únicos visíveis",
+            },
+            suggestedSecretHint: {
+              type: Type.STRING,
+              description: "Pista ou detalhe não óbvio para confirmação de propriedade (ex: adesivo colado no fundo)",
+            },
+            description: {
+              type: Type.STRING,
+              description: "Descrição visual rica e profissional pronta para o cadastro de achados e perdidos",
+            },
+          },
+          required: [
+            "title",
+            "category",
+            "color",
+            "brand",
+            "condition",
+            "distinctiveFeatures",
+            "suggestedSecretHint",
+            "description",
+          ],
+        },
+      },
+    });
+
+    const analysis = JSON.parse(response.text || "{}");
+
+    return res.json({
+      success: true,
+      analysis,
+    });
+  } catch (err: any) {
+    console.error("Erro no endpoint /api/ai/analyze-image:", err);
+    res.status(500).json({ error: err.message || "Erro na análise de visão do Gemini Pro." });
+  }
+});
+
+// AI Endpoint Fast Query Expansion / Quick Auto-Tagging using gemini-3.1-flash-lite
+app.post("/api/ai/quick-tag", async (req, res) => {
+  try {
+    const { text } = req.body;
+    const ai = getGenAIClient();
+
+    if (!text || !ai) {
+      return res.json({ tags: ["Geral"], suggestedCategory: "Outros" });
+    }
+
+    const response = await ai.models.generateContent({
+      model: "gemini-3.1-flash-lite",
+      contents: `Gere 3 a 5 tags curtas e indique a categoria ideal para o texto: "${text}". Categorias: Eletrônicos, Documentos & Cartões, Roupas & Calçados, Chaves, Material Escolar & Livros, Acessórios & Bijuterias, Garrafas & Marmitas, Guarda-chuvas, Outros.`,
+      config: {
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: Type.OBJECT,
+          properties: {
+            tags: { type: Type.ARRAY, items: { type: Type.STRING } },
+            suggestedCategory: { type: Type.STRING },
+          },
+          required: ["tags", "suggestedCategory"],
+        },
+      },
+    });
+
+    return res.json(JSON.parse(response.text || "{}"));
+  } catch (err: any) {
+    return res.json({ tags: ["IFPR"], suggestedCategory: "Outros" });
   }
 });
 
@@ -199,7 +355,7 @@ Avalie a probabilidade de algum desses objetos pré-cadastrados ser O MESMO obje
 Calcule uma pontuação de similaridade de 0 a 100 para cada um. Retorne apenas os itens com pontuação >= 50.`;
 
     const response = await ai.models.generateContent({
-      model: "gemini-3.6-flash",
+      model: "gemini-3.5-flash",
       contents: prompt,
       config: {
         responseMimeType: "application/json",

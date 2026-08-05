@@ -61,8 +61,10 @@ interface AppContextType {
   notifications: NotificationItem[];
   darkMode: boolean;
   toggleDarkMode: () => void;
-  activeTab: "home" | "lost" | "found" | "register" | "dashboard" | "profile";
-  setActiveTab: (tab: "home" | "lost" | "found" | "register" | "dashboard" | "profile") => void;
+  activeTab: "home" | "lost" | "found" | "register" | "dashboard" | "profile" | "image_analyzer";
+  setActiveTab: (tab: "home" | "lost" | "found" | "register" | "dashboard" | "profile" | "image_analyzer") => void;
+  prefilledItemFromAI: Partial<LostFoundItem> | null;
+  setPrefilledItemFromAI: (data: Partial<LostFoundItem> | null) => void;
   selectedItemForDetail: LostFoundItem | null;
   setSelectedItemForDetail: (item: LostFoundItem | null) => void;
   addItem: (
@@ -112,8 +114,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   // Active view tab
   const [activeTab, setActiveTab] = useState<
-    "home" | "lost" | "found" | "register" | "dashboard" | "profile"
+    "home" | "lost" | "found" | "register" | "dashboard" | "profile" | "image_analyzer"
   >("home");
+
+  const [prefilledItemFromAI, setPrefilledItemFromAI] = useState<Partial<LostFoundItem> | null>(null);
 
   const [authModalOpen, setAuthModalOpen] = useState(false);
   const [selectedItemForDetail, setSelectedItemForDetail] = useState<LostFoundItem | null>(null);
@@ -140,15 +144,24 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       if (fbUser) {
         try {
           const userSnap = await getDoc(doc(db, "users", fbUser.uid));
+          const isAdminEmail =
+            fbUser.email?.toLowerCase() === "paulocauan39@gmail.com" ||
+            fbUser.email?.includes("carlos");
+
           if (userSnap.exists()) {
-            setCurrentUser(userSnap.data() as User);
+            const userData = userSnap.data() as User;
+            if (isAdminEmail && userData.role !== "ADMIN") {
+              userData.role = "ADMIN";
+              await setDoc(doc(db, "users", fbUser.uid), { role: "ADMIN" }, { merge: true });
+            }
+            setCurrentUser(userData);
           } else {
             const userObj: User = {
               id: fbUser.uid,
-              name: fbUser.displayName || "Usuário IFPR",
+              name: fbUser.displayName || (isAdminEmail ? "Paulo Cauan" : "Usuário IFPR"),
               email: fbUser.email || "",
-              role: fbUser.email?.includes("carlos") ? "ADMIN" : fbUser.email?.includes("maria") ? "SERVIDOR" : "ALUNO",
-              courseOrDept: "Campus Ivaiporã",
+              role: isAdminEmail ? "ADMIN" : fbUser.email?.includes("maria") ? "SERVIDOR" : "ALUNO",
+              courseOrDept: isAdminEmail ? "Administração de TI & Campus Ivaiporã" : "Campus Ivaiporã",
               registrationNumber: fbUser.uid.substring(0, 10),
               avatarUrl: fbUser.photoURL || "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80",
             };
@@ -293,9 +306,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   ) => {
     try {
       const res = await createUserWithEmailAndPassword(auth, email, pass);
+      const isAdminEmail = email.toLowerCase() === "paulocauan39@gmail.com";
       const newUserObj: User = {
         id: res.user.uid,
         ...userData,
+        email,
+        role: isAdminEmail ? "ADMIN" : userData.role || "ALUNO",
         avatarUrl:
           userData.avatarUrl ||
           `https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80`,
@@ -536,6 +552,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         toggleDarkMode,
         activeTab,
         setActiveTab,
+        prefilledItemFromAI,
+        setPrefilledItemFromAI,
         selectedItemForDetail,
         setSelectedItemForDetail,
         addItem,
