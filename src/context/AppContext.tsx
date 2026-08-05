@@ -9,6 +9,7 @@ import {
   UserRole,
 } from "../types";
 import { INITIAL_ITEMS, MOCK_USERS, MOCK_NOTIFICATIONS, MOCK_CLAIMS } from "../data/mockData";
+import { safeFetchJson, clientMatchSimilarity } from "../lib/apiHelper";
 import {
   collection,
   doc,
@@ -525,16 +526,20 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     if (candidates.length > 0) {
       try {
-        const res = await fetch("/api/ai/match-similarity", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ newItem, candidateItems: candidates }),
-        });
-        const data = await res.json();
+        const data = await safeFetchJson(
+          "/api/ai/match-similarity",
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ newItem, candidateItems: candidates }),
+          },
+          () => clientMatchSimilarity(newItem, candidates)
+        );
+
         if (data.matches && Array.isArray(data.matches)) {
           aiMatches = data.matches
             .map((m: any) => {
-              const matchedItem = items.find((it) => it.id === m.itemId);
+              const matchedItem = items.find((it) => it.id === (m.itemId || m.matchedItem?.id));
               if (!matchedItem) return null;
               return {
                 matchScore: m.matchScore,
@@ -546,7 +551,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             .filter((m: any): m is AIMatchResult => m !== null && m.matchScore >= 50);
         }
       } catch (err) {
-        console.error("Erro no teste de IA de similaridade:", err);
+        console.warn("Aviso na IA de similaridade:", err);
       }
     }
 

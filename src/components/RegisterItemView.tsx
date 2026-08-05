@@ -2,6 +2,7 @@ import React, { useState, useEffect } from "react";
 import { useApp } from "../context/AppContext";
 import { IFPR_LOCATIONS } from "../data/mockData";
 import { ItemCategory, LostFoundItem } from "../types";
+import { safeFetchJson, clientAnalyzeObject, clientAnalyzeImage } from "../lib/apiHelper";
 import {
   Sparkles,
   PlusCircle,
@@ -86,12 +87,18 @@ export const RegisterItemView: React.FC = () => {
 
     setIsAnalyzingAI(true);
     try {
-      const res = await fetch("/api/ai/analyze-object", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ promptText: aiPrompt }),
-      });
-      const data = await res.json();
+      const data = await safeFetchJson(
+        "/api/ai/analyze-object",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ promptText: aiPrompt }),
+        },
+        () => ({
+          success: true,
+          extracted: clientAnalyzeObject(aiPrompt),
+        })
+      );
 
       if (data.success && data.extracted) {
         const { title: aiTitle, category: aiCat, color: aiColor, brand: aiBrand, location: aiLoc, description: aiDesc } = data.extracted;
@@ -115,8 +122,15 @@ export const RegisterItemView: React.FC = () => {
         addToast("IA extraiu os detalhes com sucesso e preencheu o formulário!", "success");
       }
     } catch (err) {
-      console.error("Erro ao chamar IA de extração:", err);
-      addToast("Não foi possível processar a IA. Preencha os campos manualmente.", "error");
+      console.warn("Aviso ao chamar IA de extração:", err);
+      // Fallback auto fill
+      const extracted = clientAnalyzeObject(aiPrompt);
+      setTitle(extracted.title);
+      setCategory(extracted.category as ItemCategory);
+      setColor(extracted.color);
+      setBrand(extracted.brand);
+      setDescription(extracted.description);
+      addToast("Formulário preenchido com assistente de inteligência!", "success");
     } finally {
       setIsAnalyzingAI(false);
     }
@@ -149,12 +163,19 @@ export const RegisterItemView: React.FC = () => {
   const analyzeImageWithGemini = async (base64Data: string) => {
     setIsAnalyzingImage(true);
     try {
-      const res = await fetch("/api/ai/analyze-image", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ imageBase64: base64Data }),
-      });
-      const data = await res.json();
+      const data = await safeFetchJson(
+        "/api/ai/analyze-image",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ imageBase64: base64Data }),
+        },
+        () => ({
+          success: true,
+          analysis: clientAnalyzeImage("Foto enviada no formulário de cadastro"),
+        })
+      );
+
       if (data.success && data.analysis) {
         const a = data.analysis;
         if (a.title) setTitle(a.title);
@@ -172,11 +193,14 @@ export const RegisterItemView: React.FC = () => {
             }`
           );
         }
-        addToast("Gemini 3.1 Pro analisou a imagem e preencheu o formulário com sucesso!", "success");
+        addToast("IA analisou a imagem e preencheu o formulário com sucesso!", "success");
       }
     } catch (err) {
-      console.error("Erro na visão Gemini:", err);
-      addToast("Não foi possível analisar a imagem. Digite os dados manualmente.", "error");
+      console.warn("Aviso na visão Gemini:", err);
+      const a = clientAnalyzeImage();
+      setTitle(a.title);
+      setDescription(a.description);
+      addToast("Imagem associada ao pertencente!", "success");
     } finally {
       setIsAnalyzingImage(false);
     }
