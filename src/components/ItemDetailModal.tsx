@@ -27,11 +27,49 @@ interface ItemDetailModalProps {
 }
 
 export const ItemDetailModal: React.FC<ItemDetailModalProps> = ({ item, onClose }) => {
-  const { currentUser, submitClaim, updateItemStatus, addToast } = useApp();
+  const { currentUser, submitClaim, updateItemStatus, sendEmailViaGmail, addToast } = useApp();
   const [activeImageIndex, setActiveImageIndex] = useState(0);
   const [claimModalOpen, setClaimModalOpen] = useState(false);
   const [verificationInput, setVerificationInput] = useState("");
   const [isSubmittingClaim, setIsSubmittingClaim] = useState(false);
+
+  // Gmail send state
+  const [emailModalOpen, setEmailModalOpen] = useState(false);
+  const [recipientEmail, setRecipientEmail] = useState("paulocauan39@gmail.com");
+  const [emailSubject, setEmailSubject] = useState(`[IFPR Achados & Perdidos] Consulta: ${item.title}`);
+  const [emailBody, setEmailBody] = useState(`Olá,\n\nEstou entrando em contato a respeito do item "${item.title}" (ID: ${item.id}) cadastrado no Achados e Perdidos do IFPR Campus Ivaiporã.\n\nAtenciosamente,\n${currentUser.name}`);
+  const [isSendingEmail, setIsSendingEmail] = useState(false);
+
+  const handleSendEmailSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!recipientEmail || !emailSubject || !emailBody) {
+      addToast("Preencha todos os campos do e-mail.", "error");
+      return;
+    }
+    setIsSendingEmail(true);
+    try {
+      await sendEmailViaGmail(
+        recipientEmail,
+        emailSubject,
+        `<div style="font-family: sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; border: 1px solid #e0e0e0; border-radius: 12px; padding: 24px;">
+          <div style="background-color: #00843D; color: white; padding: 12px 20px; border-radius: 8px; font-weight: bold; font-size: 16px;">
+            IFPR Campus Ivaiporã • Achados & Perdidos
+          </div>
+          <h3 style="color: #00843D; margin-top: 20px;">${emailSubject}</h3>
+          <p style="white-space: pre-wrap; color: #444;">${emailBody}</p>
+          <div style="margin-top: 24px; padding-top: 16px; border-top: 1px solid #eee; font-size: 12px; color: #888;">
+            Item ID: <strong>${item.id}</strong> | Local: <strong>${item.location}</strong><br/>
+            Enviado via Integração Oficial do Gmail do IFPR.
+          </div>
+        </div>`
+      );
+      setEmailModalOpen(false);
+    } catch (err: any) {
+      console.error(err);
+    } finally {
+      setIsSendingEmail(false);
+    }
+  };
 
   const allImages = [item.imageUrl, ...(item.additionalImages || [])];
 
@@ -256,6 +294,15 @@ export const ItemDetailModal: React.FC<ItemDetailModalProps> = ({ item, onClose 
                 </button>
               )}
 
+              {/* Gmail Notification / Contact Button */}
+              <button
+                onClick={() => setEmailModalOpen(true)}
+                className="w-full py-2.5 px-4 rounded-xl border border-red-500/30 bg-red-500/10 hover:bg-red-500/20 text-red-600 dark:text-red-400 font-bold text-xs transition-colors flex items-center justify-center space-x-2"
+              >
+                <Send className="w-4 h-4 text-red-500" />
+                <span>Enviar Notificação / Dúvida via Gmail</span>
+              </button>
+
               {/* Admin or Server privileges: Quick resolve button */}
               {(currentUser.role === "ADMIN" || currentUser.role === "SERVIDOR") && item.status !== "DEVOLVIDO" && (
                 <button
@@ -328,6 +375,89 @@ export const ItemDetailModal: React.FC<ItemDetailModalProps> = ({ item, onClose 
                 >
                   <Send className="w-3.5 h-3.5" />
                   <span>{isSubmittingClaim ? "Enviando..." : "Confirmar Solicitação"}</span>
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Gmail Modal */}
+      {emailModalOpen && (
+        <div className="fixed inset-0 z-60 flex items-center justify-center p-4 bg-black/70 backdrop-blur-xs">
+          <div className="bg-white dark:bg-[#1E1E1E] rounded-3xl p-6 max-w-lg w-full border border-neutral-200 dark:border-neutral-800 shadow-2xl space-y-4">
+            <div className="flex items-center justify-between border-b border-neutral-200 dark:border-neutral-800 pb-3">
+              <h3 className="font-bold text-base text-neutral-900 dark:text-white flex items-center gap-2">
+                <Send className="w-5 h-5 text-red-500" /> Enviar Notificação via Gmail
+              </h3>
+              <button
+                onClick={() => setEmailModalOpen(false)}
+                className="p-1.5 rounded-full hover:bg-neutral-100 dark:hover:bg-neutral-800"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <p className="text-xs text-neutral-600 dark:text-neutral-300 leading-relaxed">
+              Utilize a API do Gmail para enviar uma mensagem sobre o objeto <strong>"{item.title}"</strong> diretamente para o destinatário informado.
+            </p>
+
+            <form onSubmit={handleSendEmailSubmit} className="space-y-3.5">
+              <div>
+                <label className="block text-xs font-bold text-neutral-700 dark:text-neutral-200 mb-1">
+                  Destinatário (E-mail) *
+                </label>
+                <input
+                  type="email"
+                  required
+                  value={recipientEmail}
+                  onChange={(e) => setRecipientEmail(e.target.value)}
+                  placeholder="exemplo@gmail.com"
+                  className="w-full p-2.5 rounded-xl border border-neutral-300 dark:border-neutral-700 bg-neutral-50 dark:bg-neutral-800 text-neutral-900 dark:text-white text-xs outline-none focus:ring-2 focus:ring-[#00843D]"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-neutral-700 dark:text-neutral-200 mb-1">
+                  Assunto *
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={emailSubject}
+                  onChange={(e) => setEmailSubject(e.target.value)}
+                  className="w-full p-2.5 rounded-xl border border-neutral-300 dark:border-neutral-700 bg-neutral-50 dark:bg-neutral-800 text-neutral-900 dark:text-white text-xs outline-none focus:ring-2 focus:ring-[#00843D]"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-neutral-700 dark:text-neutral-200 mb-1">
+                  Conteúdo da Mensagem *
+                </label>
+                <textarea
+                  required
+                  rows={4}
+                  value={emailBody}
+                  onChange={(e) => setEmailBody(e.target.value)}
+                  className="w-full p-2.5 rounded-xl border border-neutral-300 dark:border-neutral-700 bg-neutral-50 dark:bg-neutral-800 text-neutral-900 dark:text-white text-xs outline-none focus:ring-2 focus:ring-[#00843D]"
+                />
+              </div>
+
+              <div className="flex justify-end space-x-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setEmailModalOpen(false)}
+                  className="px-4 py-2 rounded-xl text-xs font-bold text-neutral-600 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSendingEmail}
+                  className="px-5 py-2 rounded-xl bg-red-600 hover:bg-red-700 text-white font-bold text-xs shadow-md flex items-center space-x-1.5"
+                >
+                  <Send className="w-3.5 h-3.5" />
+                  <span>{isSendingEmail ? "Enviando..." : "Enviar via Gmail"}</span>
                 </button>
               </div>
             </form>

@@ -1,12 +1,41 @@
 import { initializeApp } from 'firebase/app';
 import { getAuth, GoogleAuthProvider } from 'firebase/auth';
-import { getFirestore, doc, getDocFromServer } from 'firebase/firestore';
+import { getFirestore } from 'firebase/firestore';
+import { getAnalytics, isSupported as isAnalyticsSupported, logEvent as logFbEvent, Analytics } from 'firebase/analytics';
 import firebaseConfig from '../../firebase-applet-config.json';
 
 const app = initializeApp(firebaseConfig);
-export const db = getFirestore(app, firebaseConfig.firestoreDatabaseId);
+const dbId = (firebaseConfig as any).firestoreDatabaseId || "ai-studio-ifprachadosperdi-d3034e26-954c-413d-8c6d-f7e508afe8b1";
+export const db = getFirestore(app, dbId);
 export const auth = getAuth(app);
 export const googleProvider = new GoogleAuthProvider();
+googleProvider.addScope('https://mail.google.com/');
+googleProvider.addScope('https://www.googleapis.com/auth/gmail.send');
+googleProvider.addScope('https://www.googleapis.com/auth/gmail.readonly');
+
+export let firebaseAnalytics: Analytics | null = null;
+if (typeof window !== 'undefined') {
+  isAnalyticsSupported().then((supported) => {
+    if (supported) {
+      try {
+        firebaseAnalytics = getAnalytics(app);
+        console.log("Firebase Analytics inicializado com sucesso.");
+      } catch (err) {
+        console.warn("Firebase Analytics não disponível neste ambiente:", err);
+      }
+    }
+  });
+}
+
+export function logFirebaseEvent(eventName: string, eventParams?: Record<string, any>) {
+  if (firebaseAnalytics) {
+    try {
+      logFbEvent(firebaseAnalytics, eventName, eventParams);
+    } catch (err) {
+      console.warn("Erro ao enviar evento para Firebase Analytics:", err);
+    }
+  }
+}
 
 export enum OperationType {
   CREATE = 'create',
@@ -51,17 +80,5 @@ export function handleFirestoreError(error: unknown, operationType: OperationTyp
     operationType,
     path
   };
-  console.error('Firestore Error: ', JSON.stringify(errInfo));
+  console.warn('Firestore Notice: ', JSON.stringify(errInfo));
 }
-
-// Test connection on boot
-async function testConnection() {
-  try {
-    await getDocFromServer(doc(db, 'test', 'connection'));
-  } catch (error) {
-    if (error instanceof Error && error.message.includes('the client is offline')) {
-      console.error("Please check your Firebase configuration.");
-    }
-  }
-}
-testConnection();

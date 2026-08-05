@@ -24,6 +24,7 @@ import {
   createUserWithEmailAndPassword,
   signOut,
   onAuthStateChanged,
+  GoogleAuthProvider,
   User as FirebaseUser,
 } from "firebase/auth";
 import {
@@ -33,6 +34,7 @@ import {
   handleFirestoreError,
   OperationType,
 } from "../lib/firebase";
+import { sendGmailEmail } from "../lib/gmail";
 
 interface Toast {
   id: string;
@@ -46,6 +48,8 @@ interface AppContextType {
   setCurrentUser: (user: User) => void;
   switchUserRole: (role: UserRole) => void;
   loginWithGoogle: () => Promise<void>;
+  googleAccessToken: string | null;
+  sendEmailViaGmail: (to: string, subject: string, bodyHtml: string) => Promise<void>;
   loginWithEmailPassword: (email: string, pass: string) => Promise<void>;
   registerWithEmailPassword: (
     email: string,
@@ -129,6 +133,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [registerTypeSelection, setRegisterTypeSelection] = useState<"PERDIDO" | "ENCONTRADO">("PERDIDO");
   const [toasts, setToasts] = useState<Toast[]>([]);
 
+  const [googleAccessToken, setGoogleAccessToken] = useState<string | null>(null);
+
   const addToast = (text: string, type: "success" | "error" | "info" = "info") => {
     const id = Math.random().toString(36).substring(2, 9);
     setToasts((prev) => [...prev, { id, text, type }]);
@@ -137,16 +143,40 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }, 4000);
   };
 
+  // Send Email via Gmail API
+  const sendEmailViaGmail = async (to: string, subject: string, bodyHtml: string) => {
+    let token = googleAccessToken;
+    if (!token) {
+      try {
+        const res = await signInWithPopup(auth, googleProvider);
+        const cred = GoogleAuthProvider.credentialFromResult(res);
+        if (cred?.accessToken) {
+          token = cred.accessToken;
+          setGoogleAccessToken(token);
+        }
+      } catch (err: any) {
+        addToast("É necessário autorizar a conexão com o Google para enviar e-mails via Gmail.", "error");
+        throw err;
+      }
+    }
+    if (!token) {
+      throw new Error("Token de acesso do Gmail indisponível.");
+    }
+    await sendGmailEmail({ to, subject, bodyHtml, accessToken: token });
+    addToast(`E-mail enviado via Gmail para ${to} com sucesso!`, "success");
+  };
+
   // Listen to Firebase Auth
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (fbUser) => {
       setFirebaseUser(fbUser);
       if (fbUser) {
+        const isAdminEmail =
+          fbUser.email?.toLowerCase() === "paulocauan39@gmail.com" ||
+          fbUser.email?.includes("carlos");
+
         try {
           const userSnap = await getDoc(doc(db, "users", fbUser.uid));
-          const isAdminEmail =
-            fbUser.email?.toLowerCase() === "paulocauan39@gmail.com" ||
-            fbUser.email?.includes("carlos");
 
           if (userSnap.exists()) {
             const userData = userSnap.data() as User;
@@ -169,7 +199,17 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             await setDoc(doc(db, "users", fbUser.uid), userObj, { merge: true });
           }
         } catch (e) {
-          console.error("Erro ao carregar usuário no Firestore:", e);
+          console.error("Erro ao carregar/salvar perfil no Firestore:", e);
+          // Fallback so user is logged in
+          setCurrentUser({
+            id: fbUser.uid,
+            name: fbUser.displayName || (isAdminEmail ? "Paulo Cauan" : "Usuário IFPR"),
+            email: fbUser.email || "",
+            role: isAdminEmail ? "ADMIN" : "ALUNO",
+            courseOrDept: "Campus Ivaiporã",
+            registrationNumber: fbUser.uid.substring(0, 10),
+            avatarUrl: fbUser.photoURL || "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80",
+          });
         }
       }
     });
@@ -275,11 +315,15 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const loginWithGoogle = async () => {
     try {
-      await signInWithPopup(auth, googleProvider);
+      const res = await signInWithPopup(auth, googleProvider);
+      const cred = GoogleAuthProvider.credentialFromResult(res);
+      if (cred?.accessToken) {
+        setGoogleAccessToken(cred.accessToken);
+      }
       addToast("Login realizado via Google com sucesso!", "success");
-    } catch (e) {
+    } catch (e: any) {
       console.error("Erro no login via Google:", e);
-      addToast("Falha ao realizar login no Google", "error");
+      addToast(`Falha no login Google: ${e.message || "Tente novamente"}`, "error");
       throw e;
     }
   };
@@ -290,11 +334,32 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       const userSnap = await getDoc(doc(db, "users", res.user.uid));
       if (userSnap.exists()) {
         setCurrentUser(userSnap.data() as User);
+      } else {
+        const isAdminEmail = email.toLowerCase() === "paulocauan39@gmail.com";
+        const fallbackUser: User = {
+          id: res.user.uid,
+          name: res.user.displayName || (isAdminEmail ? "Paulo Cauan" : email.split("@")[0]),
+          email: res.user.email || email,
+          role: isAdminEmail ? "ADMIN" : "ALUNO",
+          courseOrDept: "Campus Ivaiporã",
+          registrationNumber: res.user.uid.substring(0, 10),
+          avatarUrl: "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80",
+        };
+        setCurrentUser(fallbackUser);
+        await setDoc(doc(db, "users", res.user.uid), fallbackUser, { merge: true });
       }
       addToast(`Bem-vindo de volta! Login efetuado com sucesso.`, "success");
     } catch (e: any) {
       console.error("Erro no login por e-mail/senha:", e);
-      addToast("Falha no login. Verifique e-mail e senha.", "error");
+      let errMsg = "Falha no login. Verifique e-mail e senha.";
+      if (e.code === "auth/operation-not-allowed") {
+        errMsg = "O login por E-mail/Senha está desativado no Firebase. Utilize 'Continuar com Google' ou o Acesso de Demonstração.";
+      } else if (e.code === "auth/user-not-found" || e.code === "auth/invalid-credential" || e.code === "auth/wrong-password") {
+        errMsg = "E-mail ou senha incorretos. Se não tiver conta, clique na aba 'Cadastrar'.";
+      } else if (e.code === "auth/invalid-email") {
+        errMsg = "Endereço de e-mail em formato inválido.";
+      }
+      addToast(errMsg, "error");
       throw e;
     }
   };
@@ -318,10 +383,20 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       };
       setCurrentUser(newUserObj);
       await setDoc(doc(db, "users", res.user.uid), newUserObj);
-      addToast("Cadastro realizado com sucesso! Dados salvos no Firestore.", "success");
+      addToast("Cadastro realizado com sucesso!", "success");
     } catch (e: any) {
       console.error("Erro no cadastro por e-mail/senha:", e);
-      addToast("Erro no cadastro. E-mail pode estar em uso ou dados inválidos.", "error");
+      let errMsg = "Erro no cadastro. Verifique os dados.";
+      if (e.code === "auth/operation-not-allowed") {
+        errMsg = "O cadastro por E-mail/Senha está desativado no Firebase. Utilize 'Continuar com Google' ou o Acesso de Demonstração.";
+      } else if (e.code === "auth/email-already-in-use") {
+        errMsg = "Este e-mail já está cadastrado. Alterne para a aba 'Entrar (Login)'.";
+      } else if (e.code === "auth/weak-password") {
+        errMsg = "A senha é muito fraca. Digite pelo menos 6 caracteres.";
+      } else if (e.code === "auth/invalid-email") {
+        errMsg = "Endereço de e-mail inválido.";
+      }
+      addToast(errMsg, "error");
       throw e;
     }
   };
@@ -339,6 +414,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const logout = async () => {
     try {
       await signOut(auth);
+      setGoogleAccessToken(null);
       setCurrentUser(MOCK_USERS[0]);
       addToast("Sessão encerrada.", "info");
     } catch (e) {
@@ -539,6 +615,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         setCurrentUser,
         switchUserRole,
         loginWithGoogle,
+        googleAccessToken,
+        sendEmailViaGmail,
         loginWithEmailPassword,
         registerWithEmailPassword,
         updateUserProfileData,

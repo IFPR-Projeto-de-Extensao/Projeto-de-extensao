@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useEffect } from "react";
 import { Analytics } from "@vercel/analytics/react";
 import { SpeedInsights } from "@vercel/speed-insights/react";
 import { AppProvider, useApp } from "./context/AppContext";
@@ -15,9 +15,18 @@ import { QRCodeScannerModal } from "./components/QRCodeScannerModal";
 import { AIMatchModal } from "./components/AIMatchModal";
 import { AuthModal } from "./components/AuthModal";
 import { ToastContainer } from "./components/ToastContainer";
+import { initGoogleAnalytics, trackPageView } from "./lib/analytics";
 
 const MainContent: React.FC = () => {
   const { activeTab, selectedItemForDetail, setSelectedItemForDetail, authModalOpen, setAuthModalOpen } = useApp();
+
+  useEffect(() => {
+    initGoogleAnalytics();
+  }, []);
+
+  useEffect(() => {
+    trackPageView(`aba_${activeTab}`);
+  }, [activeTab]);
 
   return (
     <div className="min-h-screen bg-[#F5F5F5] dark:bg-[#121212] text-neutral-900 dark:text-neutral-100 flex flex-col font-sans transition-colors duration-200 selection:bg-[#00843D] selection:text-white">

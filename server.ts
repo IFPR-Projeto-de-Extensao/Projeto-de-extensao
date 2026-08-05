@@ -32,12 +32,67 @@ function getGenAIClient(): GoogleGenAI | null {
   return aiClient;
 }
 
-// API Health Check
+// In-memory Analytics & Monitoring Store
+const serverStartTime = Date.now();
+let totalServerRequests = 0;
+const analyticsEvents: Array<{ eventName: string; params?: any; timestamp: string; ip?: string }> = [];
+const eventCounters: Record<string, number> = {};
+
+app.use((_req, _res, next) => {
+  totalServerRequests++;
+  next();
+});
+
+// API Health Check & System Monitoring
 app.get("/api/health", (_req, res) => {
   res.json({
     status: "ok",
     timestamp: new Date().toISOString(),
+    uptimeSeconds: Math.floor((Date.now() - serverStartTime) / 1000),
     geminiAvailable: !!process.env.GEMINI_API_KEY,
+    memoryUsageMB: Math.round(process.memoryUsage().heapUsed / 1024 / 1024),
+  });
+});
+
+// Analytics Tracking Endpoint (Google Analytics + Firebase Backend Receiver)
+app.post("/api/analytics/track", (req, res) => {
+  try {
+    const { eventName, params, timestamp, url } = req.body;
+    if (!eventName) {
+      return res.status(400).json({ error: "Nome do evento obrigatório." });
+    }
+
+    const eventRecord = {
+      eventName,
+      params: params || {},
+      timestamp: timestamp || new Date().toISOString(),
+      url: url || "",
+      ip: req.ip,
+    };
+
+    analyticsEvents.unshift(eventRecord);
+    if (analyticsEvents.length > 500) {
+      analyticsEvents.pop();
+    }
+
+    eventCounters[eventName] = (eventCounters[eventName] || 0) + 1;
+
+    console.log(`[Analytics Tracked] Evento: ${eventName}`, params || "");
+    return res.json({ success: true, logged: eventRecord });
+  } catch (err: any) {
+    return res.status(500).json({ error: "Erro ao processar telemetria de analíticos." });
+  }
+});
+
+// Analytics Dashboard Metrics Endpoint
+app.get("/api/analytics/metrics", (_req, res) => {
+  res.json({
+    totalServerRequests,
+    totalAnalyticsEvents: analyticsEvents.length,
+    eventCounters,
+    recentEvents: analyticsEvents.slice(0, 50),
+    uptimeSeconds: Math.floor((Date.now() - serverStartTime) / 1000),
+    systemMemoryMB: Math.round(process.memoryUsage().heapUsed / 1024 / 1024),
   });
 });
 

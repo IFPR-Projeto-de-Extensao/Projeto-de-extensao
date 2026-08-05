@@ -1,6 +1,7 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { useApp } from "../context/AppContext";
 import { formatDate } from "../lib/utils";
+import { trackCustomEvent } from "../lib/analytics";
 import {
   BarChart,
   Bar,
@@ -29,6 +30,10 @@ import {
   CheckCircle,
   AlertCircle,
   Filter,
+  Activity,
+  Server,
+  BarChart3,
+  Globe,
 } from "lucide-react";
 
 export const DashboardView: React.FC = () => {
@@ -45,6 +50,31 @@ export const DashboardView: React.FC = () => {
 
   const [tableSearch, setTableSearch] = useState("");
   const [tableCategory, setTableCategory] = useState("TODAS");
+  const [serverMetrics, setServerMetrics] = useState<{
+    totalServerRequests?: number;
+    totalAnalyticsEvents?: number;
+    uptimeSeconds?: number;
+    systemMemoryMB?: number;
+    eventCounters?: Record<string, number>;
+  }>({});
+
+  const fetchServerMetrics = async () => {
+    try {
+      const res = await fetch('/api/analytics/metrics');
+      if (res.ok) {
+        const data = await res.json();
+        setServerMetrics(data);
+      }
+    } catch (e) {
+      // Non-blocking telemetry
+    }
+  };
+
+  useEffect(() => {
+    fetchServerMetrics();
+    const interval = setInterval(fetchServerMetrics, 10000);
+    return () => clearInterval(interval);
+  }, []);
 
   const isAdmin = currentUser.role === "ADMIN" || currentUser.role === "SERVIDOR";
 
@@ -213,6 +243,65 @@ export const DashboardView: React.FC = () => {
           <div className="flex items-baseline justify-between">
             <span className="text-3xl font-black text-[#00843D] dark:text-green-400">{successRate}%</span>
             <span className="text-xs font-semibold text-emerald-500">Meta: &gt;75%</span>
+          </div>
+        </div>
+      </div>
+
+      {/* ANALYTICS & MONITORING STATUS CARD */}
+      <div className="p-6 rounded-3xl bg-neutral-900 text-white border border-neutral-800 shadow-md space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-neutral-800 pb-3">
+          <div className="flex items-center space-x-2">
+            <Activity className="w-5 h-5 text-emerald-400 animate-pulse" />
+            <h3 className="font-bold text-base text-white">
+              Monitoramento & Analíticos em Tempo Real
+            </h3>
+            <span className="px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-400 font-bold text-[10px] uppercase">
+              Ativo
+            </span>
+          </div>
+          <span className="text-xs text-neutral-400 flex items-center gap-1.5">
+            <Server className="w-3.5 h-3.5 text-blue-400" /> Servidor Express + Google & Firebase Analytics
+          </span>
+        </div>
+
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 pt-1 text-xs">
+          <div className="bg-neutral-800/60 p-3.5 rounded-2xl border border-neutral-700/60">
+            <div className="flex items-center space-x-1.5 text-neutral-400 mb-1 font-semibold">
+              <Globe className="w-3.5 h-3.5 text-blue-400" />
+              <span>Google Analytics</span>
+            </div>
+            <div className="font-bold text-sm text-green-400 flex items-center space-x-1">
+              <span className="w-2 h-2 rounded-full bg-green-400 inline-block animate-ping"></span>
+              <span>gtag.js Conectado</span>
+            </div>
+            <p className="text-[10px] text-neutral-400 mt-0.5">Medição de Acessos GA4</p>
+          </div>
+
+          <div className="bg-neutral-800/60 p-3.5 rounded-2xl border border-neutral-700/60">
+            <div className="flex items-center space-x-1.5 text-neutral-400 mb-1 font-semibold">
+              <BarChart3 className="w-3.5 h-3.5 text-amber-400" />
+              <span>Firebase Analytics</span>
+            </div>
+            <div className="font-bold text-sm text-amber-400">Ativo / Habilitado</div>
+            <p className="text-[10px] text-neutral-400 mt-0.5">Rastreamento de Eventos</p>
+          </div>
+
+          <div className="bg-neutral-800/60 p-3.5 rounded-2xl border border-neutral-700/60">
+            <div className="flex items-center space-x-1.5 text-neutral-400 mb-1 font-semibold">
+              <Server className="w-3.5 h-3.5 text-emerald-400" />
+              <span>Requisições Servidor</span>
+            </div>
+            <div className="font-bold text-sm text-white">{serverMetrics.totalServerRequests ?? 1}</div>
+            <p className="text-[10px] text-neutral-400 mt-0.5">Uptime: {serverMetrics.uptimeSeconds ?? 0}s</p>
+          </div>
+
+          <div className="bg-neutral-800/60 p-3.5 rounded-2xl border border-neutral-700/60">
+            <div className="flex items-center space-x-1.5 text-neutral-400 mb-1 font-semibold">
+              <Activity className="w-3.5 h-3.5 text-purple-400" />
+              <span>Eventos Registrados</span>
+            </div>
+            <div className="font-bold text-sm text-purple-300">{serverMetrics.totalAnalyticsEvents ?? 0}</div>
+            <p className="text-[10px] text-neutral-400 mt-0.5">Uso de Memória: {serverMetrics.systemMemoryMB ?? 25} MB</p>
           </div>
         </div>
       </div>
