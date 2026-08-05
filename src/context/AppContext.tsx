@@ -234,84 +234,94 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   // Listen to Firebase Auth
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (fbUser) => {
+    let unsubscribeProfileSnapshot: (() => void) | null = null;
+
+    const unsubscribeAuth = onAuthStateChanged(auth, async (fbUser) => {
       setFirebaseUser(fbUser);
+
+      // Clean up previous profile listener if any
+      if (unsubscribeProfileSnapshot) {
+        unsubscribeProfileSnapshot();
+        unsubscribeProfileSnapshot = null;
+      }
+
       if (fbUser) {
         const userEmail = (fbUser.email || "").toLowerCase();
         const isAdminEmail =
           userEmail === "paulocauan39@gmail.com" || userEmail.includes("carlos");
 
-        try {
-          const userSnap = await getDoc(doc(db, "users", fbUser.uid));
+        const userRef = doc(db, "users", fbUser.uid);
 
-          if (userSnap.exists()) {
-            const userData = userSnap.data() as User;
-            if (isAdminEmail && userData.role !== "ADMIN") {
-              userData.role = "ADMIN";
-              await setDoc(doc(db, "users", fbUser.uid), { role: "ADMIN" }, { merge: true });
-            }
-            setCurrentUser(userData);
-            setAllUsers((prev) =>
-              prev.some((u) => u.id === userData.id || u.email.toLowerCase() === userEmail)
-                ? prev.map((u) => (u.email.toLowerCase() === userEmail ? userData : u))
-                : [...prev, userData]
-            );
-          } else {
-            // Check if account already exists with this email in Firestore query
-            let existing: User | undefined;
-            try {
-              const q = query(collection(db, "users"), where("email", "==", userEmail));
-              const querySnap = await getDocs(q);
-              if (!querySnap.empty) {
-                existing = querySnap.docs[0].data() as User;
+        // Listen in real-time to the user document in Firestore for seamless persistence
+        unsubscribeProfileSnapshot = onSnapshot(
+          userRef,
+          async (userSnap) => {
+            if (userSnap.exists()) {
+              const userData = userSnap.data() as User;
+              if (isAdminEmail && userData.role !== "ADMIN") {
+                userData.role = "ADMIN";
+                try {
+                  await setDoc(userRef, { role: "ADMIN" }, { merge: true });
+                } catch (_) {}
               }
-            } catch (_) {}
+              setCurrentUser(userData);
+              setAllUsers((prev) =>
+                prev.some((u) => u.id === userData.id || u.email.toLowerCase() === userEmail)
+                  ? prev.map((u) => (u.email.toLowerCase() === userEmail ? userData : u))
+                  : [...prev, userData]
+              );
+            } else {
+              // Check if account already exists with this email in Firestore query
+              let existing: User | undefined;
+              try {
+                const q = query(collection(db, "users"), where("email", "==", userEmail));
+                const querySnap = await getDocs(q);
+                if (!querySnap.empty) {
+                  existing = querySnap.docs[0].data() as User;
+                }
+              } catch (_) {}
 
-            if (!existing) {
-              existing = allUsers.find((u) => u.email.toLowerCase() === userEmail) ||
-                MOCK_USERS.find((u) => u.email.toLowerCase() === userEmail);
+              if (!existing) {
+                existing = allUsers.find((u) => u.email.toLowerCase() === userEmail) ||
+                  MOCK_USERS.find((u) => u.email.toLowerCase() === userEmail);
+              }
+
+              const userObj: User = existing ? {
+                ...existing,
+                id: fbUser.uid,
+                avatarUrl: fbUser.photoURL || existing.avatarUrl,
+              } : {
+                id: fbUser.uid,
+                name: fbUser.displayName || (isAdminEmail ? "Paulo Cauan" : "Usuário IFPR"),
+                email: fbUser.email || userEmail,
+                role: isAdminEmail ? "ADMIN" : userEmail.includes("maria") ? "SERVIDOR" : "ALUNO",
+                courseOrDept: isAdminEmail ? "Administração de TI & Campus Ivaiporã" : "Campus Ivaiporã",
+                registrationNumber: fbUser.uid.substring(0, 10),
+                avatarUrl: fbUser.photoURL || "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80",
+              };
+
+              setCurrentUser(userObj);
+              setAllUsers((prev) =>
+                prev.some((u) => u.email.toLowerCase() === userEmail)
+                  ? prev.map((u) => (u.email.toLowerCase() === userEmail ? userObj : u))
+                  : [...prev, userObj]
+              );
+              try {
+                await setDoc(userRef, userObj, { merge: true });
+              } catch (_) {}
             }
-
-            const userObj: User = existing ? {
-              ...existing,
-              id: fbUser.uid,
-              avatarUrl: fbUser.photoURL || existing.avatarUrl,
-            } : {
-              id: fbUser.uid,
-              name: fbUser.displayName || (isAdminEmail ? "Paulo Cauan" : "Usuário IFPR"),
-              email: fbUser.email || userEmail,
-              role: isAdminEmail ? "ADMIN" : userEmail.includes("maria") ? "SERVIDOR" : "ALUNO",
-              courseOrDept: isAdminEmail ? "Administração de TI & Campus Ivaiporã" : "Campus Ivaiporã",
-              registrationNumber: fbUser.uid.substring(0, 10),
-              avatarUrl: fbUser.photoURL || "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80",
-            };
-            setCurrentUser(userObj);
-            setAllUsers((prev) =>
-              prev.some((u) => u.email.toLowerCase() === userEmail)
-                ? prev.map((u) => (u.email.toLowerCase() === userEmail ? userObj : u))
-                : [...prev, userObj]
-            );
-            await setDoc(doc(db, "users", fbUser.uid), userObj, { merge: true });
+          },
+          (e) => {
+            console.warn("Aviso ao escutar perfil no Firestore:", e);
           }
-        } catch (e) {
-          console.error("Erro ao carregar/salvar perfil no Firestore:", e);
-          const existing = allUsers.find((u) => u.email.toLowerCase() === userEmail) ||
-            MOCK_USERS.find((u) => u.email.toLowerCase() === userEmail);
-
-          const fallbackUser = existing ? { ...existing, id: fbUser.uid } : {
-            id: fbUser.uid,
-            name: fbUser.displayName || (isAdminEmail ? "Paulo Cauan" : "Usuário IFPR"),
-            email: fbUser.email || userEmail,
-            role: isAdminEmail ? "ADMIN" : "ALUNO",
-            courseOrDept: "Campus Ivaiporã",
-            registrationNumber: fbUser.uid.substring(0, 10),
-            avatarUrl: fbUser.photoURL || "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80",
-          };
-          setCurrentUser(fallbackUser);
-        }
+        );
       }
     });
-    return () => unsubscribe();
+
+    return () => {
+      if (unsubscribeProfileSnapshot) unsubscribeProfileSnapshot();
+      unsubscribeAuth();
+    };
   }, []);
 
   // Sync Items from Firestore
