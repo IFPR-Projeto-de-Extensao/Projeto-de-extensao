@@ -1,0 +1,261 @@
+import express from "express";
+import path from "path";
+import dotenv from "dotenv";
+import { createServer as createViteServer } from "vite";
+import { GoogleGenAI, Type } from "@google/genai";
+
+dotenv.config();
+
+const app = express();
+const PORT = 3000;
+
+app.use(express.json({ limit: "10mb" }));
+
+// Initialize Google GenAI Server Client safely
+let aiClient: GoogleGenAI | null = null;
+
+function getGenAIClient(): GoogleGenAI | null {
+  if (!aiClient && process.env.GEMINI_API_KEY) {
+    try {
+      aiClient = new GoogleGenAI({
+        apiKey: process.env.GEMINI_API_KEY,
+        httpOptions: {
+          headers: {
+            "User-Agent": "aistudio-build",
+          },
+        },
+      });
+    } catch (err) {
+      console.error("Erro ao inicializar GoogleGenAI:", err);
+    }
+  }
+  return aiClient;
+}
+
+// API Health Check
+app.get("/api/health", (_req, res) => {
+  res.json({
+    status: "ok",
+    timestamp: new Date().toISOString(),
+    geminiAvailable: !!process.env.GEMINI_API_KEY,
+  });
+});
+
+// AI Endpoint: Extrair detalhes de um objeto com base no relato ou imagem
+app.post("/api/ai/analyze-object", async (req, res) => {
+  try {
+    const { promptText, imageBase64 } = req.body;
+    const ai = getGenAIClient();
+
+    if (!ai) {
+      // Fallback inteligente caso a chave não esteja definida ainda no ambiente
+      return res.json({
+        success: true,
+        extracted: {
+          title: promptText?.slice(0, 30) || "Objeto Cadastrado",
+          category: "Outros",
+          color: "Não especificada",
+          brand: "Desconhecida",
+          location: "Campus IFPR",
+          description: promptText || "Objeto cadastrado sem descrição adicional.",
+        },
+        fallback: true,
+      });
+    }
+
+    const systemInstruction = `Você é um assistente especialista do sistema Achados e Perdidos do Instituto Federal do Paraná (IFPR) - Campus Ivaiporã.
+Sua missão é analisar um relato livre ou imagem de um objeto perdido/encontrado no campus Ivaiporã e extrair dados estruturados em JSON.
+Categorias válidas disponíveis: "Eletrônicos", "Documentos & Cartões", "Roupas & Calçados", "Chaves", "Material Escolar & Livros", "Acessórios & Bijuterias", "Garrafas & Marmitas", "Guarda-chuvas", "Outros".
+Preencha todos os campos da melhor forma possível. Se um campo não puder ser identificado, utilize "Não informado".
+A resposta DEVE ser estritamente no formato JSON definido no schema.`;
+
+    const contents: any[] = [];
+    if (imageBase64) {
+      // Remove prefix data:image/...;base64, if present
+      const cleanBase64 = imageBase64.replace(/^data:image\/\w+;base64,/, "");
+      contents.push({
+        inlineData: {
+          mimeType: "image/jpeg",
+          data: cleanBase64,
+        },
+      });
+    }
+    
+    contents.push({
+      text: promptText 
+        ? `Analise este relato/objeto no IFPR: "${promptText}"`
+        : "Analise esta foto de objeto encontrado/perdido no IFPR e descreva com precisão.",
+    });
+
+    const response = await ai.models.generateContent({
+      model: "gemini-3.6-flash",
+      contents: contents.length === 1 ? contents[0] : { parts: contents },
+      config: {
+        systemInstruction,
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: Type.OBJECT,
+          properties: {
+            title: {
+              type: Type.STRING,
+              description: "Título curto e claro para o objeto (ex: Garrafa Kouda Verde 750ml)",
+            },
+            category: {
+              type: Type.STRING,
+              description: "Categoria mais apropriada dentre as opções válidas",
+            },
+            color: {
+              type: Type.STRING,
+              description: "Cor principal ou combinação de cores do objeto",
+            },
+            brand: {
+              type: Type.STRING,
+              description: "Marca ou fabricante (ex: Casio, Nike, JBL, Tupperware, IFPR)",
+            },
+            location: {
+              type: Type.STRING,
+              description: "Local mencionado no campus (ex: Refeitório, Biblioteca, Bloco A, Quadra)",
+            },
+            description: {
+              type: Type.STRING,
+              description: "Descrição organizada, concisa e formatada do objeto e seu estado",
+            },
+          },
+          required: ["title", "category", "color", "brand", "location", "description"],
+        },
+      },
+    });
+
+    const responseText = response.text || "{}";
+    const extractedData = JSON.parse(responseText);
+
+    return res.json({
+      success: true,
+      extracted: extractedData,
+    });
+  } catch (error: any) {
+    console.error("Erro na rota /api/ai/analyze-object:", error);
+    res.status(500).json({
+      success: false,
+      error: error.message || "Erro interno ao processar inteligência artificial.",
+    });
+  }
+});
+
+// AI Endpoint: Comparação de similaridade textual e semântica entre novo item e existentes
+app.post("/api/ai/match-similarity", async (req, res) => {
+  try {
+    const { newItem, candidateItems } = req.body;
+    const ai = getGenAIClient();
+
+    if (!candidateItems || candidateItems.length === 0) {
+      return res.json({ matches: [] });
+    }
+
+    if (!ai) {
+      // Local fallback text matching logic if AI key is pending
+      const simpleMatches = candidateItems
+        .map((cand: any) => {
+          let score = 0;
+          if (cand.category === newItem.category) score += 40;
+          if (cand.color?.toLowerCase().includes(newItem.color?.toLowerCase() || "___")) score += 25;
+          if (cand.brand?.toLowerCase().includes(newItem.brand?.toLowerCase() || "___")) score += 25;
+          if (cand.title?.toLowerCase().includes(newItem.title?.toLowerCase() || "___")) score += 10;
+          return {
+            itemId: cand.id,
+            matchScore: score,
+            reason: score > 50 ? "Categorias e marcas semelhantes encontradas." : "Correspondência parcial.",
+            matchedFeatures: ["Categoria", "Cor"],
+          };
+        })
+        .filter((m: any) => m.matchScore >= 40)
+        .sort((a: any, b: any) => b.matchScore - a.matchScore);
+
+      return res.json({ matches: simpleMatches });
+    }
+
+    const prompt = `Você é um algoritmo de correspondência inteligente do Achados & Perdidos IFPR Campus Ivaiporã.
+Compare o novo objeto cadastrado:
+- Título: ${newItem.title}
+- Tipo: ${newItem.type} (Buscando oposto nos existentes)
+- Categoria: ${newItem.category}
+- Cor: ${newItem.color}
+- Marca: ${newItem.brand}
+- Local: ${newItem.location}
+- Descrição: ${newItem.description}
+
+E compare com esta lista de objetos pré-cadastrados:
+${JSON.stringify(candidateItems.map((c: any) => ({
+  id: c.id,
+  title: c.title,
+  category: c.category,
+  color: c.color,
+  brand: c.brand,
+  location: c.location,
+  description: c.description
+})), null, 2)}
+
+Avalie a probabilidade de algum desses objetos pré-cadastrados ser O MESMO objeto ou a contraparte (por exemplo: um objeto perdido que coincide com um encontrado).
+Calcule uma pontuação de similaridade de 0 a 100 para cada um. Retorne apenas os itens com pontuação >= 50.`;
+
+    const response = await ai.models.generateContent({
+      model: "gemini-3.6-flash",
+      contents: prompt,
+      config: {
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: Type.OBJECT,
+          properties: {
+            matches: {
+              type: Type.ARRAY,
+              items: {
+                type: Type.OBJECT,
+                properties: {
+                  itemId: { type: Type.STRING },
+                  matchScore: { type: Type.INTEGER, description: "Score de 0 a 100" },
+                  reason: { type: Type.STRING, description: "Explicação em português da semelhança" },
+                  matchedFeatures: {
+                    type: Type.ARRAY,
+                    items: { type: Type.STRING },
+                    description: "Lista de características que bateram (ex: Categoria, Cor, Marca)",
+                  },
+                },
+                required: ["itemId", "matchScore", "reason", "matchedFeatures"],
+              },
+            },
+          },
+          required: ["matches"],
+        },
+      },
+    });
+
+    const parsed = JSON.parse(response.text || '{"matches":[]}');
+    return res.json(parsed);
+  } catch (err: any) {
+    console.error("Erro no endpoint /api/ai/match-similarity:", err);
+    res.status(500).json({ error: err.message || "Erro no cruzamento de dados de IA." });
+  }
+});
+
+// Serve frontend assets
+async function startServer() {
+  if (process.env.NODE_ENV !== "production") {
+    const vite = await createViteServer({
+      server: { middlewareMode: true },
+      appType: "spa",
+    });
+    app.use(vite.middlewares);
+  } else {
+    const distPath = path.join(process.cwd(), "dist");
+    app.use(express.static(distPath));
+    app.get("*", (req, res) => {
+      res.sendFile(path.join(distPath, "index.html"));
+    });
+  }
+
+  app.listen(PORT, "0.0.0.0", () => {
+    console.log(`IFPR Achados & Perdidos backend rodando em http://localhost:${PORT}`);
+  });
+}
+
+startServer();

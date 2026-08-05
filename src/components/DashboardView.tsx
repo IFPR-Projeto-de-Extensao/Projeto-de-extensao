@@ -1,0 +1,409 @@
+import React, { useState } from "react";
+import { useApp } from "../context/AppContext";
+import { formatDate } from "../lib/utils";
+import {
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  ResponsiveContainer,
+  PieChart,
+  Pie,
+  Cell,
+  Legend,
+  AreaChart,
+  Area,
+} from "recharts";
+import {
+  ShieldAlert,
+  Users,
+  CheckCircle2,
+  PackageSearch,
+  Clock,
+  TrendingUp,
+  FileSpreadsheet,
+  QrCode,
+  Search,
+  CheckCircle,
+  AlertCircle,
+  Filter,
+} from "lucide-react";
+
+export const DashboardView: React.FC = () => {
+  const {
+    items,
+    currentUser,
+    switchUserRole,
+    updateItemStatus,
+    deleteItem,
+    setQrScannerOpen,
+    setSelectedItemForDetail,
+    addToast,
+  } = useApp();
+
+  const [tableSearch, setTableSearch] = useState("");
+  const [tableCategory, setTableCategory] = useState("TODAS");
+
+  const isAdmin = currentUser.role === "ADMIN" || currentUser.role === "SERVIDOR";
+
+  // Compute Metrics
+  const totalItems = items.length;
+  const lostCount = items.filter((i) => i.type === "PERDIDO").length;
+  const foundCount = items.filter((i) => i.type === "ENCONTRADO").length;
+  const returnedCount = items.filter((i) => i.status === "DEVOLVIDO").length;
+  const successRate = totalItems > 0 ? Math.round((returnedCount / totalItems) * 100) : 0;
+
+  // Chart 1 Data: Monthly Lost vs Found
+  const monthlyData = [
+    { month: "Mar", perdidos: 8, encontrados: 10, devolvidos: 7 },
+    { month: "Abr", perdidos: 12, encontrados: 15, devolvidos: 11 },
+    { month: "Mai", perdidos: 10, encontrados: 14, devolvidos: 12 },
+    { month: "Jun", perdidos: 14, encontrados: 18, devolvidos: 15 },
+    { month: "Jul", perdidos: 16, encontrados: 20, devolvidos: 17 },
+    { month: "Ago", perdidos: lostCount, encontrados: foundCount, devolvidos: returnedCount },
+  ];
+
+  // Chart 2 Data: Categories Distribution (Donut Chart)
+  const categoryCounts: Record<string, number> = {};
+  items.forEach((it) => {
+    categoryCounts[it.category] = (categoryCounts[it.category] || 0) + 1;
+  });
+
+  const COLORS = ["#00843D", "#C8102E", "#3B82F6", "#F59E0B", "#8B5CF6", "#EC4899", "#14B8A6"];
+
+  const pieData = Object.keys(categoryCounts).map((catKey) => ({
+    name: catKey,
+    value: categoryCounts[catKey],
+  }));
+
+  // Chart 3 Data: Top Locations on Campus
+  const locationCounts: Record<string, number> = {};
+  items.forEach((it) => {
+    const locShort = it.location.split(" - ")[0]; // short name
+    locationCounts[locShort] = (locationCounts[locShort] || 0) + 1;
+  });
+
+  const barLocationData = Object.keys(locationCounts).map((loc) => ({
+    name: loc,
+    quantidade: locationCounts[loc],
+  }));
+
+  // Filtered Table Data
+  const filteredTableItems = items.filter((it) => {
+    const matchCat = tableCategory === "TODAS" || it.category === tableCategory;
+    const matchText =
+      tableSearch === "" ||
+      it.title.toLowerCase().includes(tableSearch.toLowerCase()) ||
+      it.registeredByName.toLowerCase().includes(tableSearch.toLowerCase()) ||
+      it.id.toLowerCase().includes(tableSearch.toLowerCase());
+    return matchCat && matchText;
+  });
+
+  const handleExportCSV = () => {
+    const headers = "ID,Titulo,Categoria,Tipo,Status,Local,Data,CadastradoPor\n";
+    const rows = items
+      .map(
+        (i) =>
+          `"${i.id}","${i.title}","${i.category}","${i.type}","${i.status}","${i.location}","${i.date}","${i.registeredByName}"`
+      )
+      .join("\n");
+    const blob = new Blob([headers + rows], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.setAttribute("download", `relatorio_ifpr_achados_perdidos_${new Date().toISOString().split("T")[0]}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    addToast("Relatório CSV exportado com sucesso!", "success");
+  };
+
+  return (
+    <div className="space-y-8 pb-16">
+      {/* Top Banner & Non-Admin Alert Banner */}
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-neutral-200 dark:border-neutral-800 pb-5">
+        <div>
+          <div className="flex items-center space-x-2">
+            <h1 className="text-2xl sm:text-3xl font-black text-neutral-900 dark:text-white">
+              Dashboard Administrativo IFPR Campus Ivaiporã
+            </h1>
+            <span className="px-2.5 py-0.5 rounded-md bg-[#00843D] text-white text-xs font-bold uppercase">
+              SEBAC
+            </span>
+          </div>
+          <p className="text-xs sm:text-sm text-neutral-500 dark:text-neutral-400">
+            Painel de controle, estatísticas de ocorrências e gestão de entregas no Campus Ivaiporã.
+          </p>
+        </div>
+
+        <div className="flex items-center space-x-2">
+          <button
+            onClick={() => setQrScannerOpen(true)}
+            className="px-4 py-2.5 rounded-xl bg-neutral-900 dark:bg-neutral-800 text-white font-bold text-xs flex items-center space-x-2 shadow-xs"
+          >
+            <QrCode className="w-4 h-4 text-green-400" />
+            <span>Escanear QR de Devolução</span>
+          </button>
+
+          <button
+            onClick={handleExportCSV}
+            className="px-4 py-2.5 rounded-xl bg-[#00843D] hover:bg-[#006e33] text-white font-bold text-xs flex items-center space-x-2 shadow-xs"
+          >
+            <FileSpreadsheet className="w-4 h-4" />
+            <span>Exportar Relatório CSV</span>
+          </button>
+        </div>
+      </div>
+
+      {!isAdmin && (
+        <div className="p-4 rounded-2xl bg-amber-500/10 border border-amber-500/30 text-amber-800 dark:text-amber-200 text-xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+          <div className="flex items-center space-x-2">
+            <ShieldAlert className="w-5 h-5 text-amber-500 shrink-0" />
+            <span>
+              Você está visualizando o Dashboard em modo <strong>Demonstração ({currentUser.role})</strong>.
+            </span>
+          </div>
+          <button
+            onClick={() => switchUserRole("ADMIN")}
+            className="px-3 py-1.5 rounded-lg bg-amber-600 text-white font-bold text-xs hover:bg-amber-700 shrink-0"
+          >
+            Alternar para Perfil Administrador
+          </button>
+        </div>
+      )}
+
+      {/* METRIC CARDS */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6">
+        <div className="p-5 rounded-2xl bg-white dark:bg-[#1E1E1E] border border-neutral-200 dark:border-neutral-800 shadow-xs">
+          <span className="text-xs font-bold text-neutral-500 uppercase tracking-wider block mb-1">
+            Total Cadastrados
+          </span>
+          <div className="flex items-baseline justify-between">
+            <span className="text-3xl font-black text-neutral-900 dark:text-white">{totalItems}</span>
+            <span className="text-xs font-semibold text-[#00843D] dark:text-green-400">+12% este mês</span>
+          </div>
+        </div>
+
+        <div className="p-5 rounded-2xl bg-white dark:bg-[#1E1E1E] border border-neutral-200 dark:border-neutral-800 shadow-xs">
+          <span className="text-xs font-bold text-neutral-500 uppercase tracking-wider block mb-1">
+            Objetos Encontrados
+          </span>
+          <div className="flex items-baseline justify-between">
+            <span className="text-3xl font-black text-[#22C55E]">{foundCount}</span>
+            <span className="text-xs font-semibold text-[#22C55E]">No Acervo</span>
+          </div>
+        </div>
+
+        <div className="p-5 rounded-2xl bg-white dark:bg-[#1E1E1E] border border-neutral-200 dark:border-neutral-800 shadow-xs">
+          <span className="text-xs font-bold text-neutral-500 uppercase tracking-wider block mb-1">
+            Devolvidos ao Dono
+          </span>
+          <div className="flex items-baseline justify-between">
+            <span className="text-3xl font-black text-[#3B82F6]">{returnedCount}</span>
+            <span className="text-xs font-semibold text-blue-500">Recuperados</span>
+          </div>
+        </div>
+
+        <div className="p-5 rounded-2xl bg-white dark:bg-[#1E1E1E] border border-neutral-200 dark:border-neutral-800 shadow-xs">
+          <span className="text-xs font-bold text-neutral-500 uppercase tracking-wider block mb-1">
+            Taxa de Devolução
+          </span>
+          <div className="flex items-baseline justify-between">
+            <span className="text-3xl font-black text-[#00843D] dark:text-green-400">{successRate}%</span>
+            <span className="text-xs font-semibold text-emerald-500">Meta: &gt;75%</span>
+          </div>
+        </div>
+      </div>
+
+      {/* CHARTS GRID SECTION */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* Chart 1: Ocorrências por Mês */}
+        <div className="p-6 rounded-3xl bg-white dark:bg-[#1E1E1E] border border-neutral-200 dark:border-neutral-800 shadow-xs space-y-4">
+          <div className="flex items-center justify-between">
+            <h3 className="font-bold text-sm text-neutral-900 dark:text-white flex items-center gap-2">
+              <TrendingUp className="w-4 h-4 text-[#00843D]" /> Evolução Mensal de Ocorrências
+            </h3>
+            <span className="text-[11px] text-neutral-400">Campus Ivaiporã</span>
+          </div>
+
+          <div className="h-64 w-full">
+            <ResponsiveContainer width="100%" height="100%">
+              <AreaChart data={monthlyData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                <defs>
+                  <linearGradient id="colorPerdidos" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#EF4444" stopOpacity={0.8} />
+                    <stop offset="95%" stopColor="#EF4444" stopOpacity={0} />
+                  </linearGradient>
+                  <linearGradient id="colorEncontrados" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#00843D" stopOpacity={0.8} />
+                    <stop offset="95%" stopColor="#00843D" stopOpacity={0} />
+                  </linearGradient>
+                </defs>
+                <CartesianGrid strokeDasharray="3 3" opacity={0.15} />
+                <XAxis dataKey="month" stroke="#888888" fontSize={11} />
+                <YAxis stroke="#888888" fontSize={11} />
+                <Tooltip
+                  contentStyle={{
+                    backgroundColor: "#181818",
+                    borderColor: "#333",
+                    borderRadius: "12px",
+                    color: "#fff",
+                    fontSize: "12px",
+                  }}
+                />
+                <Area type="monotone" dataKey="perdidos" stroke="#EF4444" fillOpacity={1} fill="url(#colorPerdidos)" name="Perdidos" />
+                <Area type="monotone" dataKey="encontrados" stroke="#00843D" fillOpacity={1} fill="url(#colorEncontrados)" name="Encontrados" />
+              </AreaChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+
+        {/* Chart 2: Distribução por Categoria (Donut) */}
+        <div className="p-6 rounded-3xl bg-white dark:bg-[#1E1E1E] border border-neutral-200 dark:border-neutral-800 shadow-xs space-y-4">
+          <div className="flex items-center justify-between">
+            <h3 className="font-bold text-sm text-neutral-900 dark:text-white flex items-center gap-2">
+              <PackageSearch className="w-4 h-4 text-[#00843D]" /> Categorias Mais Comuns
+            </h3>
+            <span className="text-[11px] text-neutral-400">Proporção</span>
+          </div>
+
+          <div className="h-64 w-full flex items-center justify-center">
+            <ResponsiveContainer width="100%" height="100%">
+              <PieChart>
+                <Pie
+                  data={pieData}
+                  cx="50%"
+                  cy="50%"
+                  innerRadius={60}
+                  outerRadius={85}
+                  paddingAngle={5}
+                  dataKey="value"
+                >
+                  {pieData.map((entry, index) => (
+                    <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                  ))}
+                </Pie>
+                <Tooltip
+                  contentStyle={{
+                    backgroundColor: "#181818",
+                    borderColor: "#333",
+                    borderRadius: "12px",
+                    color: "#fff",
+                    fontSize: "12px",
+                  }}
+                />
+                <Legend wrapperStyle={{ fontSize: "11px" }} />
+              </PieChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+      </div>
+
+      {/* RECENT REGISTRATIONS MANAGEMENT TABLE */}
+      <div className="bg-white dark:bg-[#1E1E1E] rounded-3xl border border-neutral-200 dark:border-neutral-800 shadow-xs overflow-hidden space-y-4 p-6">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-neutral-100 dark:border-neutral-800">
+          <div>
+            <h3 className="font-bold text-base text-neutral-900 dark:text-white">
+              Gestão Recente de Ocorrências
+            </h3>
+            <p className="text-xs text-neutral-500">
+              Gerencie cadastros, atualize status e imprima etiquetas de identificação.
+            </p>
+          </div>
+
+          <div className="flex items-center space-x-2">
+            <div className="relative">
+              <Search className="absolute left-3 top-2.5 w-4 h-4 text-neutral-400" />
+              <input
+                type="text"
+                value={tableSearch}
+                onChange={(e) => setTableSearch(e.target.value)}
+                placeholder="Buscar por ID ou Título..."
+                className="pl-9 pr-3 py-2 rounded-xl bg-neutral-50 dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 text-xs text-neutral-900 dark:text-white outline-none w-48 sm:w-64"
+              />
+            </div>
+          </div>
+        </div>
+
+        {/* Responsive Table */}
+        <div className="overflow-x-auto">
+          <table className="w-full text-left text-xs text-neutral-700 dark:text-neutral-300">
+            <thead className="bg-neutral-50 dark:bg-neutral-800/60 uppercase font-bold text-[10px] text-neutral-500 dark:text-neutral-400 tracking-wider">
+              <tr>
+                <th className="p-3.5 rounded-l-xl">ID / QR</th>
+                <th className="p-3.5">Objeto</th>
+                <th className="p-3.5">Categoria</th>
+                <th className="p-3.5">Local</th>
+                <th className="p-3.5">Data</th>
+                <th className="p-3.5">Status</th>
+                <th className="p-3.5 rounded-r-xl text-right">Ação</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-neutral-100 dark:divide-neutral-800">
+              {filteredTableItems.length === 0 ? (
+                <tr>
+                  <td colSpan={7} className="text-center py-8 text-neutral-500">
+                    Nenhuma ocorrência encontrada.
+                  </td>
+                </tr>
+              ) : (
+                filteredTableItems.map((item) => (
+                  <tr key={item.id} className="hover:bg-neutral-50 dark:hover:bg-neutral-800/40 transition-colors">
+                    <td className="p-3.5 font-mono font-bold text-[#00843D] dark:text-green-400">
+                      {item.id}
+                    </td>
+                    <td className="p-3.5 font-bold text-neutral-900 dark:text-white">
+                      <div className="flex items-center space-x-2">
+                        <img
+                          src={item.imageUrl}
+                          alt=""
+                          className="w-8 h-8 rounded-lg object-cover shrink-0"
+                        />
+                        <span className="truncate max-w-[160px] sm:max-w-[220px]">{item.title}</span>
+                      </div>
+                    </td>
+                    <td className="p-3.5 font-semibold text-neutral-600 dark:text-neutral-300">
+                      {item.category}
+                    </td>
+                    <td className="p-3.5 truncate max-w-[140px]">{item.location}</td>
+                    <td className="p-3.5 whitespace-nowrap">{formatDate(item.date)}</td>
+                    <td className="p-3.5">
+                      <select
+                        value={item.status}
+                        onChange={(e) => updateItemStatus(item.id, e.target.value as any)}
+                        className={`py-1 px-2.5 rounded-lg text-[11px] font-extrabold border outline-none ${
+                          item.status === "DEVOLVIDO"
+                            ? "bg-blue-500/10 text-blue-600 border-blue-500/30"
+                            : item.status === "ENCONTRADO"
+                            ? "bg-green-500/10 text-green-600 border-green-500/30"
+                            : item.status === "PERDIDO"
+                            ? "bg-red-500/10 text-red-600 border-red-500/30"
+                            : "bg-amber-500/10 text-amber-600 border-amber-500/30"
+                        }`}
+                      >
+                        <option value="PERDIDO">PERDIDO</option>
+                        <option value="ENCONTRADO">ENCONTRADO</option>
+                        <option value="EM_ANALISE">EM ANÁLISE</option>
+                        <option value="DEVOLVIDO">DEVOLVIDO</option>
+                      </select>
+                    </td>
+                    <td className="p-3.5 text-right space-x-2">
+                      <button
+                        onClick={() => setSelectedItemForDetail(item)}
+                        className="px-2.5 py-1 rounded-lg bg-neutral-100 dark:bg-neutral-800 hover:bg-[#00843D] hover:text-white font-bold text-[11px] transition-colors"
+                      >
+                        Detalhes
+                      </button>
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  );
+};
