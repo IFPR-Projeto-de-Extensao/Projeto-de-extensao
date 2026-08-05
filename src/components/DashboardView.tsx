@@ -2,6 +2,7 @@ import React, { useState, useEffect } from "react";
 import { useApp } from "../context/AppContext";
 import { formatDate } from "../lib/utils";
 import { trackCustomEvent } from "../lib/analytics";
+import { UserRole } from "../types";
 import {
   BarChart,
   Bar,
@@ -40,6 +41,8 @@ export const DashboardView: React.FC = () => {
   const {
     items,
     currentUser,
+    allUsers,
+    updateUserRole,
     switchUserRole,
     updateItemStatus,
     deleteItem,
@@ -489,6 +492,99 @@ export const DashboardView: React.FC = () => {
                   </tr>
                 ))
               )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* User Management & Role Assignment Panel (Admin Managed) */}
+      <div className="bg-white dark:bg-[#1E1E1E] rounded-3xl p-6 sm:p-8 border border-neutral-200 dark:border-neutral-800 shadow-sm space-y-6">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div>
+            <div className="flex items-center space-x-2">
+              <Users className="w-5 h-5 text-[#00843D]" />
+              <h2 className="text-xl font-bold text-neutral-900 dark:text-white">
+                Gerenciamento de Usuários e Permissões de Perfil
+              </h2>
+            </div>
+            <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-0.5">
+              Somente Administradores do IFPR podem alterar permissões entre Aluno, Servidor e Administrador.
+            </p>
+          </div>
+          <span className="self-start sm:self-auto px-3 py-1 rounded-full bg-green-500/10 text-green-700 dark:text-green-400 text-xs font-bold border border-green-500/20">
+            {allUsers.length} Usuários Cadastrados
+          </span>
+        </div>
+
+        <div className="overflow-x-auto">
+          <table className="w-full text-left text-xs">
+            <thead className="bg-neutral-50 dark:bg-neutral-800/60 text-neutral-600 dark:text-neutral-400 uppercase font-extrabold tracking-wider text-[10px]">
+              <tr>
+                <th className="p-3.5 rounded-l-xl">Usuário</th>
+                <th className="p-3.5">E-mail</th>
+                <th className="p-3.5">Curso / Setor</th>
+                <th className="p-3.5">Matrícula</th>
+                <th className="p-3.5 rounded-r-xl">Permissão (Função)</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-neutral-100 dark:divide-neutral-800">
+              {allUsers.map((u) => (
+                <tr key={u.id} className="hover:bg-neutral-50 dark:hover:bg-neutral-800/40 transition-colors">
+                  <td className="p-3.5 font-bold text-neutral-900 dark:text-white">
+                    <div className="flex items-center space-x-2.5">
+                      <img
+                        src={u.avatarUrl || "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80"}
+                        alt=""
+                        className="w-8 h-8 rounded-full object-cover shrink-0 border border-neutral-200 dark:border-neutral-700"
+                      />
+                      <div className="flex flex-col">
+                        <span className="font-bold">{u.name}</span>
+                        {u.id === currentUser.id && (
+                          <span className="text-[9px] text-[#00843D] dark:text-green-400 font-extrabold">(Sua Conta)</span>
+                        )}
+                      </div>
+                    </div>
+                  </td>
+                  <td className="p-3.5 font-mono text-neutral-600 dark:text-neutral-300">
+                    {u.email}
+                  </td>
+                  <td className="p-3.5 text-neutral-600 dark:text-neutral-300">
+                    {u.courseOrDept}
+                  </td>
+                  <td className="p-3.5 font-mono text-neutral-500">
+                    {u.registrationNumber || "N/A"}
+                  </td>
+                  <td className="p-3.5">
+                    {currentUser.role === "ADMIN" ? (
+                      <select
+                        value={u.role}
+                        onChange={(e) => updateUserRole(u.id, e.target.value as UserRole)}
+                        className={`py-1.5 px-3 rounded-xl text-xs font-bold border outline-none cursor-pointer transition-colors ${
+                          u.role === "ADMIN"
+                            ? "bg-purple-500/10 text-purple-700 dark:text-purple-300 border-purple-500/30"
+                            : u.role === "SERVIDOR"
+                            ? "bg-blue-500/10 text-blue-700 dark:text-blue-300 border-blue-500/30"
+                            : "bg-green-500/10 text-green-700 dark:text-green-300 border-green-500/30"
+                        }`}
+                      >
+                        <option value="ALUNO" className="bg-white dark:bg-neutral-800 text-neutral-900 dark:text-white font-bold">ALUNO (Discente)</option>
+                        <option value="SERVIDOR" className="bg-white dark:bg-neutral-800 text-neutral-900 dark:text-white font-bold">SERVIDOR (Docente/TAE)</option>
+                        <option value="ADMIN" className="bg-white dark:bg-neutral-800 text-neutral-900 dark:text-white font-bold">ADMIN (Administrador TI)</option>
+                      </select>
+                    ) : (
+                      <span className={`px-2.5 py-1 rounded-lg text-[11px] font-bold border ${
+                        u.role === "ADMIN"
+                          ? "bg-purple-500/10 text-purple-700 dark:text-purple-300 border-purple-500/30"
+                          : u.role === "SERVIDOR"
+                          ? "bg-blue-500/10 text-blue-700 dark:text-blue-300 border-blue-500/30"
+                          : "bg-green-500/10 text-green-700 dark:text-green-300 border-green-500/30"
+                      }`}>
+                        {u.role}
+                      </span>
+                    )}
+                  </td>
+                </tr>
+              ))}
             </tbody>
           </table>
         </div>

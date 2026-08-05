@@ -47,6 +47,8 @@ interface AppContextType {
   items: LostFoundItem[];
   currentUser: User;
   setCurrentUser: (user: User) => void;
+  allUsers: User[];
+  updateUserRole: (targetUserId: string, newRole: UserRole) => Promise<void>;
   switchUserRole: (role: UserRole) => void;
   loginWithGoogle: () => Promise<void>;
   googleAccessToken: string | null;
@@ -101,6 +103,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   // Current User State
   const [currentUser, setCurrentUser] = useState<User>(() => MOCK_USERS[0]);
+  const [allUsers, setAllUsers] = useState<User[]>(() => MOCK_USERS);
 
   // Claims state
   const [claims, setClaims] = useState<ItemClaim[]>([]);
@@ -309,6 +312,26 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return () => unsubscribe();
   }, []);
 
+  // Sync Users from Firestore
+  useEffect(() => {
+    const unsubscribe = onSnapshot(
+      collection(db, "users"),
+      (snapshot) => {
+        if (!snapshot.empty) {
+          const loadedUsers = snapshot.docs.map((d) => d.data() as User);
+          const userMap = new Map<string, User>();
+          MOCK_USERS.forEach((u) => userMap.set(u.id, u));
+          loadedUsers.forEach((u) => userMap.set(u.id, u));
+          setAllUsers(Array.from(userMap.values()));
+        }
+      },
+      (error) => {
+        console.warn("Aviso na sincronização de usuários:", error);
+      }
+    );
+    return () => unsubscribe();
+  }, []);
+
   // Sync Theme class
   useEffect(() => {
     if (darkMode) {
@@ -511,8 +534,43 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   };
 
+  const updateUserRole = async (targetUserId: string, newRole: UserRole) => {
+    if (currentUser.role !== "ADMIN") {
+      addToast("Apenas o Administrador tem autorização para alterar funções de usuários.", "error");
+      return;
+    }
+
+    try {
+      const userRef = doc(db, "users", targetUserId);
+      await setDoc(userRef, { role: newRole }, { merge: true });
+
+      setAllUsers((prev) =>
+        prev.map((u) => (u.id === targetUserId ? { ...u, role: newRole } : u))
+      );
+
+      if (currentUser.id === targetUserId) {
+        setCurrentUser((prev) => ({ ...prev, role: newRole }));
+      }
+
+      addToast(`Função do usuário atualizada para ${newRole} no banco de dados!`, "success");
+    } catch (e) {
+      console.warn("Aviso ao alterar permissão no Firestore:", e);
+      setAllUsers((prev) =>
+        prev.map((u) => (u.id === targetUserId ? { ...u, role: newRole } : u))
+      );
+      if (currentUser.id === targetUserId) {
+        setCurrentUser((prev) => ({ ...prev, role: newRole }));
+      }
+      addToast(`Função do usuário atualizada para ${newRole}!`, "success");
+    }
+  };
+
   const switchUserRole = (role: UserRole) => {
-    const found = MOCK_USERS.find((u) => u.role === role);
+    if (currentUser.role !== "ADMIN") {
+      addToast("Apenas Administradores do IFPR podem alternar perfis e permissões.", "error");
+      return;
+    }
+    const found = allUsers.find((u) => u.role === role) || MOCK_USERS.find((u) => u.role === role);
     if (found) {
       setCurrentUser(found);
       addToast(`Sessão alterada para ${found.name} (${found.role})`, "info");
@@ -706,6 +764,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         items,
         currentUser,
         setCurrentUser,
+        allUsers,
+        updateUserRole,
         switchUserRole,
         loginWithGoogle,
         googleAccessToken,

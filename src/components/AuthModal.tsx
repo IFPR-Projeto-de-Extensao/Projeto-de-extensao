@@ -27,6 +27,12 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
   const [regMatricula, setRegMatricula] = useState("");
   const [regPhone, setRegPhone] = useState("");
 
+  // Google form fallback state
+  const [showGoogleEmailInput, setShowGoogleEmailInput] = useState(false);
+  const [googleEmailInput, setGoogleEmailInput] = useState("");
+  const [googleNameInput, setGoogleNameInput] = useState("");
+  const [googleRoleInput, setGoogleRoleInput] = useState<UserRole>("ALUNO");
+
   if (!isOpen) return null;
 
   const handleLoginSubmit = async (e: React.FormEvent) => {
@@ -73,11 +79,6 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
       setLoading(false);
     }
   };
-
-  const [showGoogleEmailInput, setShowGoogleEmailInput] = useState(false);
-  const [googleEmailInput, setGoogleEmailInput] = useState("");
-  const [googleNameInput, setGoogleNameInput] = useState("");
-  const [googleRoleInput, setGoogleRoleInput] = useState<UserRole>("ALUNO");
 
   const handleGoogleClick = async () => {
     setErrorMsg("");

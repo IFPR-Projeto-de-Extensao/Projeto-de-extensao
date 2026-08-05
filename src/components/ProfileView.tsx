@@ -2,6 +2,7 @@ import React, { useState } from "react";
 import { useApp } from "../context/AppContext";
 import { ItemCard } from "./ItemCard";
 import { formatDate, formatDateTime } from "../lib/utils";
+import { UserRole } from "../types";
 import {
   User as UserIcon,
   GraduationCap,
@@ -14,12 +15,14 @@ import {
   IdCard,
   Edit,
   Phone,
+  Lock,
+  Shield,
 } from "lucide-react";
 
 export const ProfileView: React.FC = () => {
   const {
     currentUser,
-    switchUserRole,
+    updateUserRole,
     loginWithGoogle,
     logout,
     firebaseUser,
@@ -112,12 +115,31 @@ export const ProfileView: React.FC = () => {
                   <span>Login / Cadastro</span>
                 </button>
               )}
-              <button
-                onClick={() => switchUserRole(currentUser.role === "ALUNO" ? "SERVIDOR" : "ALUNO")}
-                className="px-3 py-1.5 rounded-xl bg-neutral-100 dark:bg-neutral-800 text-xs font-bold text-[#00843D] dark:text-green-400 hover:bg-[#00843D] hover:text-white transition-colors"
-              >
-                Mudar Função ({currentUser.role})
-              </button>
+              {currentUser.role === "ADMIN" ? (
+                <div className="flex items-center space-x-1.5 px-3 py-1.5 rounded-xl bg-green-50 dark:bg-green-950/40 border border-[#00843D]/30 text-xs font-bold text-[#00843D] dark:text-green-400">
+                  <Shield className="w-3.5 h-3.5 text-[#00843D]" />
+                  <span>Função:</span>
+                  <select
+                    value={currentUser.role}
+                    onChange={(e) => updateUserRole(currentUser.id, e.target.value as UserRole)}
+                    className="bg-transparent text-xs font-bold text-neutral-900 dark:text-white outline-none cursor-pointer"
+                  >
+                    <option value="ALUNO" className="bg-white dark:bg-neutral-800 text-neutral-900 dark:text-white">ALUNO</option>
+                    <option value="SERVIDOR" className="bg-white dark:bg-neutral-800 text-neutral-900 dark:text-white">SERVIDOR</option>
+                    <option value="ADMIN" className="bg-white dark:bg-neutral-800 text-neutral-900 dark:text-white">ADMIN</option>
+                  </select>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => addToast("Sua função é definida e alterada apenas pelo Administrador do IFPR.", "info")}
+                  className="px-3 py-1.5 rounded-xl bg-neutral-100 dark:bg-neutral-800 text-xs font-bold text-neutral-600 dark:text-neutral-300 flex items-center gap-1.5 hover:bg-neutral-200 dark:hover:bg-neutral-700 transition-colors"
+                  title="Somente Administradores do IFPR podem alterar perfis e permissões"
+                >
+                  <Lock className="w-3.5 h-3.5 text-amber-500" />
+                  <span>Função: {currentUser.role}</span>
+                </button>
+              )}
             </div>
           </div>
 
