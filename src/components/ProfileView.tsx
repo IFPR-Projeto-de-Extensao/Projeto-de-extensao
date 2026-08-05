@@ -20,13 +20,37 @@ export const ProfileView: React.FC = () => {
   const {
     currentUser,
     switchUserRole,
+    loginWithGoogle,
+    logout,
+    firebaseUser,
     items,
     claims,
     setSelectedItemForDetail,
     addToast,
+    updateUserProfileData,
+    setAuthModalOpen,
   } = useApp();
 
   const [activeTab, setActiveTab] = useState<"my_items" | "claims">("my_items");
+  const [isEditing, setIsEditing] = useState(false);
+
+  // Edit form state
+  const [editName, setEditName] = useState(currentUser.name);
+  const [editCourse, setEditCourse] = useState(currentUser.courseOrDept);
+  const [editMatricula, setEditMatricula] = useState(currentUser.registrationNumber);
+  const [editPhone, setEditPhone] = useState(currentUser.phone || "");
+
+  const handleSaveProfile = async (e: React.FormEvent) => {
+    e.preventDefault();
+    await updateUserProfileData({
+      ...currentUser,
+      name: editName,
+      courseOrDept: editCourse,
+      registrationNumber: editMatricula,
+      phone: editPhone,
+    });
+    setIsEditing(false);
+  };
 
   // User registered items
   const userItems = items.filter((it) => it.registeredByUserId === currentUser.id);
@@ -62,32 +86,119 @@ export const ProfileView: React.FC = () => {
               </p>
             </div>
 
-            {/* Role switch prompt */}
-            <div className="flex items-center space-x-1 justify-center">
-              <span className="text-xs text-neutral-400 mr-1 font-semibold">Perfil Ativo:</span>
+            {/* Role switch prompt, Google Login & Edit */}
+            <div className="flex flex-wrap items-center gap-2 justify-center md:justify-end">
+              <button
+                onClick={() => setIsEditing(!isEditing)}
+                className="px-3 py-1.5 rounded-xl bg-neutral-100 dark:bg-neutral-800 text-neutral-700 dark:text-neutral-200 text-xs font-bold hover:bg-neutral-200 dark:hover:bg-neutral-700 transition-colors flex items-center gap-1"
+              >
+                <Edit className="w-3.5 h-3.5" />
+                <span>{isEditing ? "Cancelar" : "Editar Perfil"}</span>
+              </button>
+
+              {firebaseUser ? (
+                <button
+                  onClick={logout}
+                  className="px-3 py-1.5 rounded-xl bg-red-500/10 text-red-600 dark:text-red-400 text-xs font-bold hover:bg-red-500 hover:text-white transition-colors"
+                >
+                  Sair da Conta
+                </button>
+              ) : (
+                <button
+                  onClick={() => setAuthModalOpen(true)}
+                  className="px-3.5 py-1.5 rounded-xl bg-[#00843D] text-white text-xs font-bold hover:bg-[#006830] transition-colors flex items-center gap-1.5 shadow-xs"
+                >
+                  <ShieldCheck className="w-4 h-4" />
+                  <span>Login / Cadastro</span>
+                </button>
+              )}
               <button
                 onClick={() => switchUserRole(currentUser.role === "ALUNO" ? "SERVIDOR" : "ALUNO")}
-                className="px-3 py-1 rounded-xl bg-neutral-100 dark:bg-neutral-800 text-xs font-bold text-[#00843D] dark:text-green-400 hover:bg-[#00843D] hover:text-white transition-colors"
+                className="px-3 py-1.5 rounded-xl bg-neutral-100 dark:bg-neutral-800 text-xs font-bold text-[#00843D] dark:text-green-400 hover:bg-[#00843D] hover:text-white transition-colors"
               >
-                Mudar Função
+                Mudar Função ({currentUser.role})
               </button>
             </div>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-3 text-xs text-neutral-600 dark:text-neutral-300 border-t border-neutral-100 dark:border-neutral-800">
-            <div className="flex items-center justify-center md:justify-start space-x-2">
-              <Mail className="w-4 h-4 text-[#00843D]" />
-              <span className="truncate">{currentUser.email}</span>
+          {!isEditing ? (
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-3 text-xs text-neutral-600 dark:text-neutral-300 border-t border-neutral-100 dark:border-neutral-800">
+              <div className="flex items-center justify-center md:justify-start space-x-2">
+                <Mail className="w-4 h-4 text-[#00843D]" />
+                <span className="truncate">{currentUser.email}</span>
+              </div>
+              <div className="flex items-center justify-center md:justify-start space-x-2">
+                <IdCard className="w-4 h-4 text-[#00843D]" />
+                <span>Matrícula: {currentUser.registrationNumber}</span>
+              </div>
+              <div className="flex items-center justify-center md:justify-start space-x-2">
+                <Phone className="w-4 h-4 text-[#00843D]" />
+                <span>{currentUser.phone || "(43) 99999-0000"}</span>
+              </div>
             </div>
-            <div className="flex items-center justify-center md:justify-start space-x-2">
-              <IdCard className="w-4 h-4 text-[#00843D]" />
-              <span>Matrícula: {currentUser.registrationNumber}</span>
-            </div>
-            <div className="flex items-center justify-center md:justify-start space-x-2">
-              <Phone className="w-4 h-4 text-[#00843D]" />
-              <span>{currentUser.phone || "(41) 99999-0000"}</span>
-            </div>
-          </div>
+          ) : (
+            <form onSubmit={handleSaveProfile} className="pt-3 border-t border-neutral-200 dark:border-neutral-800 space-y-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-[11px] font-bold text-neutral-600 dark:text-neutral-400 mb-1">
+                    Nome Completo
+                  </label>
+                  <input
+                    type="text"
+                    value={editName}
+                    onChange={(e) => setEditName(e.target.value)}
+                    className="w-full px-3 py-1.5 text-xs rounded-xl border border-neutral-300 dark:border-neutral-700 bg-neutral-50 dark:bg-neutral-800 outline-none focus:ring-2 focus:ring-[#00843D]"
+                    required
+                  />
+                </div>
+                <div>
+                  <label className="block text-[11px] font-bold text-neutral-600 dark:text-neutral-400 mb-1">
+                    Curso / Departamento
+                  </label>
+                  <input
+                    type="text"
+                    value={editCourse}
+                    onChange={(e) => setEditCourse(e.target.value)}
+                    className="w-full px-3 py-1.5 text-xs rounded-xl border border-neutral-300 dark:border-neutral-700 bg-neutral-50 dark:bg-neutral-800 outline-none focus:ring-2 focus:ring-[#00843D]"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-[11px] font-bold text-neutral-600 dark:text-neutral-400 mb-1">
+                    Matrícula / Registro
+                  </label>
+                  <input
+                    type="text"
+                    value={editMatricula}
+                    onChange={(e) => setEditMatricula(e.target.value)}
+                    className="w-full px-3 py-1.5 text-xs rounded-xl border border-neutral-300 dark:border-neutral-700 bg-neutral-50 dark:bg-neutral-800 outline-none focus:ring-2 focus:ring-[#00843D]"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[11px] font-bold text-neutral-600 dark:text-neutral-400 mb-1">
+                    Telefone / WhatsApp
+                  </label>
+                  <input
+                    type="text"
+                    value={editPhone}
+                    onChange={(e) => setEditPhone(e.target.value)}
+                    className="w-full px-3 py-1.5 text-xs rounded-xl border border-neutral-300 dark:border-neutral-700 bg-neutral-50 dark:bg-neutral-800 outline-none focus:ring-2 focus:ring-[#00843D]"
+                  />
+                </div>
+              </div>
+
+              <div className="flex justify-end space-x-2 pt-1">
+                <button
+                  type="submit"
+                  className="px-4 py-1.5 bg-[#00843D] text-white font-bold text-xs rounded-xl hover:bg-[#006830] transition-colors"
+                >
+                  Salvar Alterações no Banco de Dados
+                </button>
+              </div>
+            </form>
+          )}
         </div>
       </div>
 

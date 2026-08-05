@@ -9,6 +9,30 @@ import {
   UserRole,
 } from "../types";
 import { INITIAL_ITEMS, MOCK_USERS, MOCK_NOTIFICATIONS, MOCK_CLAIMS } from "../data/mockData";
+import {
+  collection,
+  doc,
+  getDoc,
+  onSnapshot,
+  setDoc,
+  updateDoc,
+  deleteDoc,
+} from "firebase/firestore";
+import {
+  signInWithPopup,
+  signInWithEmailAndPassword,
+  createUserWithEmailAndPassword,
+  signOut,
+  onAuthStateChanged,
+  User as FirebaseUser,
+} from "firebase/auth";
+import {
+  db,
+  auth,
+  googleProvider,
+  handleFirestoreError,
+  OperationType,
+} from "../lib/firebase";
 
 interface Toast {
   id: string;
@@ -21,6 +45,18 @@ interface AppContextType {
   currentUser: User;
   setCurrentUser: (user: User) => void;
   switchUserRole: (role: UserRole) => void;
+  loginWithGoogle: () => Promise<void>;
+  loginWithEmailPassword: (email: string, pass: string) => Promise<void>;
+  registerWithEmailPassword: (
+    email: string,
+    pass: string,
+    userData: Omit<User, "id">
+  ) => Promise<void>;
+  updateUserProfileData: (updatedUser: User) => Promise<void>;
+  logout: () => Promise<void>;
+  firebaseUser: FirebaseUser | null;
+  authModalOpen: boolean;
+  setAuthModalOpen: (open: boolean) => void;
   claims: ItemClaim[];
   notifications: NotificationItem[];
   darkMode: boolean;
@@ -50,40 +86,20 @@ interface AppContextType {
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
 
-const LOCAL_STORAGE_ITEMS_KEY = "ifpr_achados_perdidos_items";
 const LOCAL_STORAGE_THEME_KEY = "ifpr_achados_perdidos_theme";
-const LOCAL_STORAGE_USER_KEY = "ifpr_achados_perdidos_user";
 
 export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  // Items State
-  const [items, setItems] = useState<LostFoundItem[]>(() => {
-    const saved = localStorage.getItem(LOCAL_STORAGE_ITEMS_KEY);
-    if (saved) {
-      try {
-        return JSON.parse(saved);
-      } catch (e) {
-        console.error("Erro ao carregar itens do localStorage:", e);
-      }
-    }
-    return INITIAL_ITEMS;
-  });
+  const [items, setItems] = useState<LostFoundItem[]>([]);
+  const [firebaseUser, setFirebaseUser] = useState<FirebaseUser | null>(null);
 
   // Current User State
-  const [currentUser, setCurrentUser] = useState<User>(() => {
-    const saved = localStorage.getItem(LOCAL_STORAGE_USER_KEY);
-    if (saved) {
-      try {
-        return JSON.parse(saved);
-      } catch (e) {}
-    }
-    return MOCK_USERS[0]; // Default Aluno
-  });
+  const [currentUser, setCurrentUser] = useState<User>(() => MOCK_USERS[0]);
 
   // Claims state
-  const [claims, setClaims] = useState<ItemClaim[]>(MOCK_CLAIMS);
+  const [claims, setClaims] = useState<ItemClaim[]>([]);
 
   // Notifications state
-  const [notifications, setNotifications] = useState<NotificationItem[]>(MOCK_NOTIFICATIONS);
+  const [notifications, setNotifications] = useState<NotificationItem[]>([]);
 
   // Theme State
   const [darkMode, setDarkMode] = useState<boolean>(() => {
@@ -99,22 +115,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     "home" | "lost" | "found" | "register" | "dashboard" | "profile"
   >("home");
 
-  // Selected item modal details
+  const [authModalOpen, setAuthModalOpen] = useState(false);
   const [selectedItemForDetail, setSelectedItemForDetail] = useState<LostFoundItem | null>(null);
-
-  // QR Code Scanner modal state
   const [qrScannerOpen, setQrScannerOpen] = useState(false);
-
-  // AI Match alert popup modal
   const [aiMatchAlert, setAiMatchAlert] = useState<{
     newItem: LostFoundItem;
     matches: AIMatchResult[];
   } | null>(null);
-
-  // Register form type pre-selection
   const [registerTypeSelection, setRegisterTypeSelection] = useState<"PERDIDO" | "ENCONTRADO">("PERDIDO");
-
-  // Toasts
   const [toasts, setToasts] = useState<Toast[]>([]);
 
   const addToast = (text: string, type: "success" | "error" | "info" = "info") => {
@@ -125,12 +133,119 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }, 4000);
   };
 
-  // Sync Items to localStorage
+  // Listen to Firebase Auth
   useEffect(() => {
-    localStorage.setItem(LOCAL_STORAGE_ITEMS_KEY, JSON.stringify(items));
-  }, [items]);
+    const unsubscribe = onAuthStateChanged(auth, async (fbUser) => {
+      setFirebaseUser(fbUser);
+      if (fbUser) {
+        try {
+          const userSnap = await getDoc(doc(db, "users", fbUser.uid));
+          if (userSnap.exists()) {
+            setCurrentUser(userSnap.data() as User);
+          } else {
+            const userObj: User = {
+              id: fbUser.uid,
+              name: fbUser.displayName || "Usuário IFPR",
+              email: fbUser.email || "",
+              role: fbUser.email?.includes("carlos") ? "ADMIN" : fbUser.email?.includes("maria") ? "SERVIDOR" : "ALUNO",
+              courseOrDept: "Campus Ivaiporã",
+              registrationNumber: fbUser.uid.substring(0, 10),
+              avatarUrl: fbUser.photoURL || "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80",
+            };
+            setCurrentUser(userObj);
+            await setDoc(doc(db, "users", fbUser.uid), userObj, { merge: true });
+          }
+        } catch (e) {
+          console.error("Erro ao carregar usuário no Firestore:", e);
+        }
+      }
+    });
+    return () => unsubscribe();
+  }, []);
 
-  // Sync Theme class to document root element & localStorage
+  // Sync Items from Firestore
+  useEffect(() => {
+    const unsubscribe = onSnapshot(
+      collection(db, "items"),
+      async (snapshot) => {
+        if (snapshot.empty) {
+          // Seed INITIAL_ITEMS
+          try {
+            for (const item of INITIAL_ITEMS) {
+              await setDoc(doc(db, "items", item.id), item);
+            }
+          } catch (e) {
+            handleFirestoreError(e, OperationType.WRITE, "items");
+          }
+        } else {
+          const loadedItems: LostFoundItem[] = snapshot.docs.map((d) => d.data() as LostFoundItem);
+          // Sort by creation date
+          loadedItems.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+          setItems(loadedItems);
+        }
+      },
+      (error) => {
+        handleFirestoreError(error, OperationType.GET, "items");
+        setItems(INITIAL_ITEMS);
+      }
+    );
+    return () => unsubscribe();
+  }, []);
+
+  // Sync Claims from Firestore
+  useEffect(() => {
+    const unsubscribe = onSnapshot(
+      collection(db, "claims"),
+      async (snapshot) => {
+        if (snapshot.empty) {
+          try {
+            for (const claim of MOCK_CLAIMS) {
+              await setDoc(doc(db, "claims", claim.id), claim);
+            }
+          } catch (e) {
+            handleFirestoreError(e, OperationType.WRITE, "claims");
+          }
+        } else {
+          const loadedClaims: ItemClaim[] = snapshot.docs.map((d) => d.data() as ItemClaim);
+          setClaims(loadedClaims);
+        }
+      },
+      (error) => {
+        handleFirestoreError(error, OperationType.GET, "claims");
+        setClaims(MOCK_CLAIMS);
+      }
+    );
+    return () => unsubscribe();
+  }, []);
+
+  // Sync Notifications from Firestore
+  useEffect(() => {
+    const unsubscribe = onSnapshot(
+      collection(db, "notifications"),
+      async (snapshot) => {
+        if (snapshot.empty) {
+          try {
+            for (const notif of MOCK_NOTIFICATIONS) {
+              await setDoc(doc(db, "notifications", notif.id), notif);
+            }
+          } catch (e) {
+            handleFirestoreError(e, OperationType.WRITE, "notifications");
+          }
+        } else {
+          const loadedNotifs: NotificationItem[] = snapshot.docs.map((d) => d.data() as NotificationItem);
+          loadedNotifs.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+          setNotifications(loadedNotifs);
+        }
+      },
+      (error) => {
+        handleFirestoreError(error, OperationType.GET, "notifications");
+        setNotifications(MOCK_NOTIFICATIONS);
+      }
+    );
+    return () => unsubscribe();
+  }, []);
+
+  // Sync Theme class
   useEffect(() => {
     if (darkMode) {
       document.documentElement.classList.add("dark");
@@ -141,13 +256,78 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   }, [darkMode]);
 
-  // Sync User to localStorage
-  useEffect(() => {
-    localStorage.setItem(LOCAL_STORAGE_USER_KEY, JSON.stringify(currentUser));
-  }, [currentUser]);
-
   const toggleDarkMode = () => {
     setDarkMode((prev) => !prev);
+  };
+
+  const loginWithGoogle = async () => {
+    try {
+      await signInWithPopup(auth, googleProvider);
+      addToast("Login realizado via Google com sucesso!", "success");
+    } catch (e) {
+      console.error("Erro no login via Google:", e);
+      addToast("Falha ao realizar login no Google", "error");
+      throw e;
+    }
+  };
+
+  const loginWithEmailPassword = async (email: string, pass: string) => {
+    try {
+      const res = await signInWithEmailAndPassword(auth, email, pass);
+      const userSnap = await getDoc(doc(db, "users", res.user.uid));
+      if (userSnap.exists()) {
+        setCurrentUser(userSnap.data() as User);
+      }
+      addToast(`Bem-vindo de volta! Login efetuado com sucesso.`, "success");
+    } catch (e: any) {
+      console.error("Erro no login por e-mail/senha:", e);
+      addToast("Falha no login. Verifique e-mail e senha.", "error");
+      throw e;
+    }
+  };
+
+  const registerWithEmailPassword = async (
+    email: string,
+    pass: string,
+    userData: Omit<User, "id">
+  ) => {
+    try {
+      const res = await createUserWithEmailAndPassword(auth, email, pass);
+      const newUserObj: User = {
+        id: res.user.uid,
+        ...userData,
+        avatarUrl:
+          userData.avatarUrl ||
+          `https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80`,
+      };
+      setCurrentUser(newUserObj);
+      await setDoc(doc(db, "users", res.user.uid), newUserObj);
+      addToast("Cadastro realizado com sucesso! Dados salvos no Firestore.", "success");
+    } catch (e: any) {
+      console.error("Erro no cadastro por e-mail/senha:", e);
+      addToast("Erro no cadastro. E-mail pode estar em uso ou dados inválidos.", "error");
+      throw e;
+    }
+  };
+
+  const updateUserProfileData = async (updatedUser: User) => {
+    setCurrentUser(updatedUser);
+    try {
+      await setDoc(doc(db, "users", updatedUser.id), updatedUser, { merge: true });
+      addToast("Perfil atualizado no banco de dados!", "success");
+    } catch (e) {
+      handleFirestoreError(e, OperationType.WRITE, `users/${updatedUser.id}`);
+    }
+  };
+
+  const logout = async () => {
+    try {
+      await signOut(auth);
+      setCurrentUser(MOCK_USERS[0]);
+      addToast("Sessão encerrada.", "info");
+    } catch (e) {
+      console.error("Erro ao sair:", e);
+    }
   };
 
   const switchUserRole = (role: UserRole) => {
@@ -158,7 +338,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   };
 
-  // Add Item with automatic server-side AI similarity comparison
+  // Add Item
   const addItem = async (
     itemData: Omit<LostFoundItem, "id" | "createdAt" | "qrCodeId" | "registeredByUserId" | "registeredByName" | "registeredByRole">
   ): Promise<{ newItem: LostFoundItem; matches: AIMatchResult[] }> => {
@@ -177,7 +357,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       status: itemData.type === "PERDIDO" ? "PERDIDO" : "ENCONTRADO",
     };
 
-    // Find candidate counterpart items in memory (e.g., if new item is PERDIDO, search ENCONTRADO)
+    // Save item to Firestore
+    try {
+      await setDoc(doc(db, "items", newItem.id), newItem);
+    } catch (e) {
+      handleFirestoreError(e, OperationType.WRITE, `items/${newItem.id}`);
+    }
+
+    // AI Match check
     const counterpartType = newItem.type === "PERDIDO" ? "ENCONTRADO" : "PERDIDO";
     const candidates = items.filter(
       (it) => it.type === counterpartType && it.status !== "DEVOLVIDO"
@@ -212,9 +399,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       }
     }
 
-    setItems((prev) => [newItem, ...prev]);
-
-    // If matches found, add a notification for the user
     if (aiMatches.length > 0) {
       const topMatch = aiMatches[0];
       const newNotif: NotificationItem = {
@@ -227,37 +411,42 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         type: "MATCH",
         relatedItemId: topMatch.matchedItem.id,
       };
-      setNotifications((prev) => [newNotif, ...prev]);
+      try {
+        await setDoc(doc(db, "notifications", newNotif.id), newNotif);
+      } catch (e) {
+        handleFirestoreError(e, OperationType.WRITE, `notifications/${newNotif.id}`);
+      }
       setAiMatchAlert({ newItem, matches: aiMatches });
     }
 
-    addToast(`Objeto "${newItem.title}" cadastrado com sucesso!`, "success");
+    addToast(`Objeto "${newItem.title}" cadastrado com sucesso no Firestore!`, "success");
     return { newItem, matches: aiMatches };
   };
 
-  const updateItemStatus = (id: string, status: ItemStatus) => {
-    setItems((prev) =>
-      prev.map((it) => {
-        if (it.id === id) {
-          const isResolved = status === "DEVOLVIDO";
-          return {
-            ...it,
-            status,
-            resolutionDate: isResolved ? new Date().toISOString() : it.resolutionDate,
-          };
-        }
-        return it;
-      })
-    );
-    addToast(`Status do objeto atualizado para: ${status.replace("_", " ")}`, "info");
+  const updateItemStatus = async (id: string, status: ItemStatus) => {
+    const isResolved = status === "DEVOLVIDO";
+    const updates: Partial<LostFoundItem> = {
+      status,
+      resolutionDate: isResolved ? new Date().toISOString() : undefined,
+    };
+    try {
+      await updateDoc(doc(db, "items", id), updates);
+      addToast(`Status do objeto atualizado no Firestore para: ${status.replace("_", " ")}`, "info");
+    } catch (e) {
+      handleFirestoreError(e, OperationType.UPDATE, `items/${id}`);
+    }
   };
 
-  const deleteItem = (id: string) => {
-    setItems((prev) => prev.filter((it) => it.id !== id));
-    addToast("Objeto removido do sistema.", "info");
+  const deleteItem = async (id: string) => {
+    try {
+      await deleteDoc(doc(db, "items", id));
+      addToast("Objeto removido do Firestore.", "info");
+    } catch (e) {
+      handleFirestoreError(e, OperationType.DELETE, `items/${id}`);
+    }
   };
 
-  const submitClaim = (itemId: string, verificationAnswer: string) => {
+  const submitClaim = async (itemId: string, verificationAnswer: string) => {
     const item = items.find((i) => i.id === itemId);
     if (!item) return;
 
@@ -274,43 +463,56 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       createdAt: new Date().toISOString(),
     };
 
-    setClaims((prev) => [newClaim, ...prev]);
+    try {
+      await setDoc(doc(db, "claims", newClaim.id), newClaim);
+      await updateItemStatus(itemId, "EM_ANALISE");
 
-    // Update item status to EM_ANALISE
-    updateItemStatus(itemId, "EM_ANALISE");
+      const adminNotif: NotificationItem = {
+        id: `notif-${Date.now()}`,
+        userId: "u3",
+        title: "Nova Solicitação de Devolução",
+        message: `${currentUser.name} solicitou a devolução de "${item.title}".`,
+        timestamp: new Date().toISOString(),
+        read: false,
+        type: "CLAIM_UPDATE",
+        relatedItemId: itemId,
+      };
+      await setDoc(doc(db, "notifications", adminNotif.id), adminNotif);
 
-    // Add notification for admins and finder
-    const adminNotif: NotificationItem = {
-      id: `notif-${Date.now()}`,
-      userId: "u3", // Admin
-      title: "Nova Solicitação de Devolução",
-      message: `${currentUser.name} solicitou a devolução de "${item.title}".`,
-      timestamp: new Date().toISOString(),
-      read: false,
-      type: "CLAIM_UPDATE",
-      relatedItemId: itemId,
-    };
-    setNotifications((prev) => [adminNotif, ...prev]);
-
-    addToast("Solicitação enviada com sucesso! A equipe do IFPR analisará a comprovação.", "success");
+      addToast("Solicitação salva no Firestore! A equipe do IFPR analisará a comprovação.", "success");
+    } catch (e) {
+      handleFirestoreError(e, OperationType.WRITE, `claims/${newClaim.id}`);
+    }
   };
 
-  const updateClaimStatus = (claimId: string, status: ItemClaim["status"]) => {
-    setClaims((prev) =>
-      prev.map((c) => (c.id === claimId ? { ...c, status } : c))
-    );
-    addToast(`Solicitação marcada como ${status}`, "info");
+  const updateClaimStatus = async (claimId: string, status: ItemClaim["status"]) => {
+    try {
+      await updateDoc(doc(db, "claims", claimId), { status });
+      addToast(`Solicitação marcada como ${status} no Firestore`, "info");
+    } catch (e) {
+      handleFirestoreError(e, OperationType.UPDATE, `claims/${claimId}`);
+    }
   };
 
-  const markNotificationRead = (id: string) => {
-    setNotifications((prev) =>
-      prev.map((n) => (n.id === id ? { ...n, read: true } : n))
-    );
+  const markNotificationRead = async (id: string) => {
+    try {
+      await updateDoc(doc(db, "notifications", id), { read: true });
+    } catch (e) {
+      handleFirestoreError(e, OperationType.UPDATE, `notifications/${id}`);
+    }
   };
 
-  const clearAllNotifications = () => {
-    setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
-    addToast("Notificações marcadas como lidas.", "info");
+  const clearAllNotifications = async () => {
+    try {
+      for (const n of notifications) {
+        if (!n.read) {
+          await updateDoc(doc(db, "notifications", n.id), { read: true });
+        }
+      }
+      addToast("Notificações marcadas como lidas.", "info");
+    } catch (e) {
+      handleFirestoreError(e, OperationType.UPDATE, "notifications");
+    }
   };
 
   return (
@@ -320,6 +522,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         currentUser,
         setCurrentUser,
         switchUserRole,
+        loginWithGoogle,
+        loginWithEmailPassword,
+        registerWithEmailPassword,
+        updateUserProfileData,
+        logout,
+        firebaseUser,
+        authModalOpen,
+        setAuthModalOpen,
         claims,
         notifications,
         darkMode,

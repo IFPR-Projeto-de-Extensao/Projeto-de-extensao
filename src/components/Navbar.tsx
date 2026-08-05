@@ -17,6 +17,7 @@ import {
   ShieldAlert,
   GraduationCap,
   Building2,
+  LogIn,
 } from "lucide-react";
 
 export const Navbar: React.FC = () => {
@@ -31,6 +32,8 @@ export const Navbar: React.FC = () => {
     setQrScannerOpen,
     clearAllNotifications,
     setRegisterTypeSelection,
+    setAuthModalOpen,
+    firebaseUser,
   } = useApp();
 
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
@@ -267,10 +270,29 @@ export const Navbar: React.FC = () => {
               </button>
             </div>
 
+            {/* Login / Cadastro Button */}
+            {!firebaseUser ? (
+              <button
+                onClick={() => setAuthModalOpen(true)}
+                className="px-3 py-1.5 rounded-xl bg-[#00843D] hover:bg-[#006830] text-white text-xs font-bold transition-all shadow-xs flex items-center space-x-1.5"
+              >
+                <LogIn className="w-3.5 h-3.5" />
+                <span>Entrar / Cadastrar</span>
+              </button>
+            ) : (
+              <button
+                onClick={() => setAuthModalOpen(true)}
+                className="hidden sm:flex px-2.5 py-1 rounded-xl bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 text-xs font-bold border border-emerald-500/20 hover:bg-emerald-500 hover:text-white transition-colors"
+              >
+                Conta Ativa
+              </button>
+            )}
+
             {/* Profile Avatar Trigger */}
             <button
               onClick={() => handleNavClick("profile")}
-              className="flex items-center space-x-2 pl-2 cursor-pointer focus:outline-none"
+              className="flex items-center space-x-2 pl-1 cursor-pointer focus:outline-none"
+              title="Ver Perfil"
             >
               <img
                 src={currentUser.avatarUrl}
