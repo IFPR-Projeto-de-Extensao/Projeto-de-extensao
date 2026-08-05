@@ -1,5 +1,6 @@
 import { LostFoundItem, ItemCategory } from "../types";
 import { IFPR_LOCATIONS } from "../data/mockData";
+import { GoogleGenAI } from "@google/genai";
 
 export interface AIAnalysisResult {
   title: string;
@@ -25,7 +26,7 @@ export interface AIExtractedObject {
 export async function safeFetchJson<T>(
   url: string,
   options: RequestInit,
-  fallbackGenerator: () => T
+  fallbackGenerator: () => T | Promise<T>
 ): Promise<T> {
   try {
     const res = await fetch(url, options);
@@ -34,16 +35,27 @@ export async function safeFetchJson<T>(
       const data = await res.json();
       return data;
     } else {
-      console.warn(`[API Notice] Route ${url} returned status ${res.status}. Using smart client fallback.`);
-      return fallbackGenerator();
+      console.warn(`[API Notice] Rota ${url} retornou código ${res.status}. Utilizando assistente inteligente cliente.`);
+      return await fallbackGenerator();
     }
   } catch (err) {
-    console.warn(`[API Notice] Network issue accessing ${url}. Using smart client fallback:`, err);
-    return fallbackGenerator();
+    console.warn(`[API Notice] Instabilidade na rede em ${url}. Utilizando assistente inteligente cliente:`, err);
+    return await fallbackGenerator();
   }
 }
 
-// Client-Side Smart Fallback for Text Prompt Analysis
+// Client-Side Gemini Initialization if API key is provided
+function getClientGemini(): GoogleGenAI | null {
+  try {
+    const apiKey = (import.meta as any).env?.VITE_GEMINI_API_KEY;
+    if (apiKey) {
+      return new GoogleGenAI({ apiKey });
+    }
+  } catch (_) {}
+  return null;
+}
+
+// Client-Side Smart Analysis for Text Prompts
 export function clientAnalyzeObject(promptText: string): AIExtractedObject {
   const lower = (promptText || "").toLowerCase();
 
@@ -63,7 +75,7 @@ export function clientAnalyzeObject(promptText: string): AIExtractedObject {
     category = "Acessórios & Bijuterias";
   } else if (/\b(garrafa|copo|squeeze|marmita|tupperware|térmica|termica|caneca)\b/.test(lower)) {
     category = "Garrafas & Marmitas";
-  } else if (/\b(guarda-chuva|sombrinha|sombrinha)\b/.test(lower)) {
+  } else if (/\b(guarda-chuva|sombrinha)\b/.test(lower)) {
     category = "Guarda-chuvas";
   }
 

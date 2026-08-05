@@ -252,46 +252,6 @@ export const Navbar: React.FC = () => {
               </span>
             </button>
 
-            {/* Role Switcher Pill (Quick Switch Demo User) */}
-            <div className="hidden sm:flex items-center space-x-1 p-1 bg-neutral-100 dark:bg-neutral-800 rounded-xl border border-neutral-200 dark:border-neutral-700">
-              <button
-                onClick={() => switchUserRole("ALUNO")}
-                className={`px-2 py-1 rounded-lg text-[11px] font-bold transition-colors flex items-center space-x-1 ${
-                  currentUser.role === "ALUNO"
-                    ? "bg-white dark:bg-neutral-700 text-[#00843D] dark:text-green-400 shadow-xs"
-                    : "text-neutral-500 dark:text-neutral-400 hover:text-neutral-900"
-                }`}
-                title="Simular Aluno"
-              >
-                <GraduationCap className="w-3.5 h-3.5" />
-                <span>Aluno</span>
-              </button>
-              <button
-                onClick={() => switchUserRole("SERVIDOR")}
-                className={`px-2 py-1 rounded-lg text-[11px] font-bold transition-colors flex items-center space-x-1 ${
-                  currentUser.role === "SERVIDOR"
-                    ? "bg-white dark:bg-neutral-700 text-[#00843D] dark:text-green-400 shadow-xs"
-                    : "text-neutral-500 dark:text-neutral-400 hover:text-neutral-900"
-                }`}
-                title="Simular Servidor/Professor"
-              >
-                <Building2 className="w-3.5 h-3.5" />
-                <span>Servidor</span>
-              </button>
-              <button
-                onClick={() => switchUserRole("ADMIN")}
-                className={`px-2 py-1 rounded-lg text-[11px] font-bold transition-colors flex items-center space-x-1 ${
-                  currentUser.role === "ADMIN"
-                    ? "bg-[#00843D] text-white shadow-xs"
-                    : "text-neutral-500 dark:text-neutral-400 hover:text-neutral-900"
-                }`}
-                title="Simular Administrador"
-              >
-                <ShieldAlert className="w-3.5 h-3.5" />
-                <span>Admin</span>
-              </button>
-            </div>
-
             {/* Login / Cadastro Button */}
             {!firebaseUser ? (
               <button
@@ -454,43 +414,6 @@ export const Navbar: React.FC = () => {
             <UserCheck className="w-5 h-5 text-[#00843D]" />
             <span>Meu Perfil ({currentUser.role})</span>
           </button>
-
-          {/* Role switcher for mobile */}
-          <div className="pt-3 border-t border-neutral-200 dark:border-neutral-800">
-            <p className="text-xs font-semibold text-neutral-400 mb-2">Simular Usuário:</p>
-            <div className="grid grid-cols-3 gap-1">
-              <button
-                onClick={() => switchUserRole("ALUNO")}
-                className={`py-1.5 text-center text-xs font-bold rounded-lg ${
-                  currentUser.role === "ALUNO"
-                    ? "bg-[#00843D] text-white"
-                    : "bg-neutral-100 dark:bg-neutral-800 text-neutral-700 dark:text-neutral-300"
-                }`}
-              >
-                Aluno
-              </button>
-              <button
-                onClick={() => switchUserRole("SERVIDOR")}
-                className={`py-1.5 text-center text-xs font-bold rounded-lg ${
-                  currentUser.role === "SERVIDOR"
-                    ? "bg-[#00843D] text-white"
-                    : "bg-neutral-100 dark:bg-neutral-800 text-neutral-700 dark:text-neutral-300"
-                }`}
-              >
-                Servidor
-              </button>
-              <button
-                onClick={() => switchUserRole("ADMIN")}
-                className={`py-1.5 text-center text-xs font-bold rounded-lg ${
-                  currentUser.role === "ADMIN"
-                    ? "bg-[#00843D] text-white"
-                    : "bg-neutral-100 dark:bg-neutral-800 text-neutral-700 dark:text-neutral-300"
-                }`}
-              >
-                Admin
-              </button>
-            </div>
-          </div>
         </div>
       )}
     </header>

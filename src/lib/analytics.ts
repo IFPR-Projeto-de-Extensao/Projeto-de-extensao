@@ -29,6 +29,9 @@ export function initGoogleAnalytics(measurementId = 'G-Q2BWFJTJ8K') {
     script.id = 'ga-gtag-script';
     script.async = true;
     script.src = `https://www.googletagmanager.com/gtag/js?id=${measurementId}`;
+    script.onerror = () => {
+      console.warn(`[Analytics Notice] Não foi possível carregar o script do Google Analytics (${measurementId}). O aplicativo continuará funcionando normalmente.`);
+    };
     document.head.appendChild(script);
 
     console.log(`Google Analytics (${measurementId}) inicializado.`);

@@ -185,9 +185,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const unsubscribe = onAuthStateChanged(auth, async (fbUser) => {
       setFirebaseUser(fbUser);
       if (fbUser) {
+        const userEmail = (fbUser.email || "").toLowerCase();
         const isAdminEmail =
-          fbUser.email?.toLowerCase() === "paulocauan39@gmail.com" ||
-          fbUser.email?.includes("carlos");
+          userEmail === "paulocauan39@gmail.com" || userEmail.includes("carlos");
 
         try {
           const userSnap = await getDoc(doc(db, "users", fbUser.uid));
@@ -200,11 +200,19 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             }
             setCurrentUser(userData);
           } else {
-            const userObj: User = {
+            // Find if account already exists with this email in state or mock data
+            const existing = allUsers.find((u) => u.email.toLowerCase() === userEmail) ||
+              MOCK_USERS.find((u) => u.email.toLowerCase() === userEmail);
+
+            const userObj: User = existing ? {
+              ...existing,
+              id: fbUser.uid,
+              avatarUrl: fbUser.photoURL || existing.avatarUrl,
+            } : {
               id: fbUser.uid,
               name: fbUser.displayName || (isAdminEmail ? "Paulo Cauan" : "Usuário IFPR"),
               email: fbUser.email || "",
-              role: isAdminEmail ? "ADMIN" : fbUser.email?.includes("maria") ? "SERVIDOR" : "ALUNO",
+              role: isAdminEmail ? "ADMIN" : userEmail.includes("maria") ? "SERVIDOR" : "ALUNO",
               courseOrDept: isAdminEmail ? "Administração de TI & Campus Ivaiporã" : "Campus Ivaiporã",
               registrationNumber: fbUser.uid.substring(0, 10),
               avatarUrl: fbUser.photoURL || "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80",
@@ -214,8 +222,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           }
         } catch (e) {
           console.error("Erro ao carregar/salvar perfil no Firestore:", e);
-          // Fallback so user is logged in
-          setCurrentUser({
+          const existing = allUsers.find((u) => u.email.toLowerCase() === userEmail) ||
+            MOCK_USERS.find((u) => u.email.toLowerCase() === userEmail);
+
+          setCurrentUser(existing || {
             id: fbUser.uid,
             name: fbUser.displayName || (isAdminEmail ? "Paulo Cauan" : "Usuário IFPR"),
             email: fbUser.email || "",
@@ -228,7 +238,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       }
     });
     return () => unsubscribe();
-  }, []);
+  }, [allUsers]);
 
   // Sync Items from Firestore
   useEffect(() => {
@@ -351,14 +361,22 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     try {
       // Direct custom Google registration/login fallback (e.g. from user prompt or dialog)
       if (customGoogleUser?.email) {
-        const userEmail = customGoogleUser.email.trim();
+        const userEmail = customGoogleUser.email.trim().toLowerCase();
         const userName = customGoogleUser.name?.trim() || userEmail.split("@")[0];
-        const isAdmin = userEmail.toLowerCase() === "paulocauan39@gmail.com";
+        const isAdmin = userEmail === "paulocauan39@gmail.com";
         const isServidor = customGoogleUser.role === "SERVIDOR" || userEmail.includes("@ifpr.edu.br");
         const userRole: UserRole = isAdmin ? "ADMIN" : (customGoogleUser.role || (isServidor ? "SERVIDOR" : "ALUNO"));
 
-        const userId = "google_" + userEmail.toLowerCase().replace(/[^a-z0-9]/g, "_");
-        const gUser: User = {
+        // Check if user already exists
+        const existing = allUsers.find((u) => u.email.toLowerCase() === userEmail) ||
+          MOCK_USERS.find((u) => u.email.toLowerCase() === userEmail);
+
+        const userId = existing ? existing.id : "google_" + userEmail.replace(/[^a-z0-9]/g, "_");
+        const gUser: User = existing ? {
+          ...existing,
+          name: userName || existing.name,
+          role: isAdmin ? "ADMIN" : (existing.role || userRole),
+        } : {
           id: userId,
           name: userName,
           email: userEmail,
@@ -372,7 +390,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         try {
           await setDoc(doc(db, "users", userId), gUser, { merge: true });
         } catch (_) {}
-        addToast(`Autenticado com sucesso como ${gUser.name} (${gUser.email})!`, "success");
+        addToast(`Sessão iniciada como ${gUser.name} (${gUser.email})!`, "success");
         return;
       }
 
@@ -389,10 +407,17 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       if (userSnap.exists()) {
         gUser = userSnap.data() as User;
       } else {
-        const userEmail = res.user.email || "";
-        const isAdmin = userEmail.toLowerCase() === "paulocauan39@gmail.com";
+        const userEmail = (res.user.email || "").toLowerCase();
+        const existing = allUsers.find((u) => u.email.toLowerCase() === userEmail) ||
+          MOCK_USERS.find((u) => u.email.toLowerCase() === userEmail);
+
+        const isAdmin = userEmail === "paulocauan39@gmail.com";
         const isServidor = userEmail.includes("@ifpr.edu.br");
-        gUser = {
+        gUser = existing ? {
+          ...existing,
+          id: res.user.uid,
+          avatarUrl: res.user.photoURL || existing.avatarUrl,
+        } : {
           id: res.user.uid,
           name: res.user.displayName || userEmail.split("@")[0] || "Usuário Google",
           email: userEmail,
@@ -409,23 +434,29 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       addToast(`Bem-vindo, ${gUser.name}! Autenticado com a Conta Google com sucesso.`, "success");
     } catch (e: any) {
       console.warn("Aviso no login via Google:", e);
-      // Re-throw so AuthModal can provide seamless interactive Google email entry if popup domain fails
       throw e;
     }
   };
 
   const loginWithEmailPassword = async (email: string, pass: string) => {
+    const cleanEmail = email.trim().toLowerCase();
     try {
-      const res = await signInWithEmailAndPassword(auth, email, pass);
+      const res = await signInWithEmailAndPassword(auth, cleanEmail, pass);
       const userSnap = await getDoc(doc(db, "users", res.user.uid));
       if (userSnap.exists()) {
         setCurrentUser(userSnap.data() as User);
       } else {
-        const isAdminEmail = email.toLowerCase() === "paulocauan39@gmail.com";
-        const fallbackUser: User = {
+        const existing = allUsers.find((u) => u.email.toLowerCase() === cleanEmail) ||
+          MOCK_USERS.find((u) => u.email.toLowerCase() === cleanEmail);
+
+        const isAdminEmail = cleanEmail === "paulocauan39@gmail.com";
+        const fallbackUser: User = existing ? {
+          ...existing,
           id: res.user.uid,
-          name: res.user.displayName || (isAdminEmail ? "Paulo Cauan" : email.split("@")[0]),
-          email: res.user.email || email,
+        } : {
+          id: res.user.uid,
+          name: res.user.displayName || (isAdminEmail ? "Paulo Cauan" : cleanEmail.split("@")[0]),
+          email: res.user.email || cleanEmail,
           role: isAdminEmail ? "ADMIN" : "ALUNO",
           courseOrDept: "Campus Ivaiporã",
           registrationNumber: res.user.uid.substring(0, 10),
@@ -437,19 +468,30 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       addToast(`Bem-vindo de volta! Login efetuado com sucesso.`, "success");
     } catch (e: any) {
       console.warn("Erro no login por e-mail/senha:", e);
+
+      // Check if user account already exists in state
+      const existing = allUsers.find((u) => u.email.toLowerCase() === cleanEmail) ||
+        MOCK_USERS.find((u) => u.email.toLowerCase() === cleanEmail);
+
+      if (existing) {
+        setCurrentUser(existing);
+        addToast(`Bem-vindo de volta, ${existing.name}! Login efetuado com sucesso.`, "success");
+        return;
+      }
+
       if (e.code === "auth/operation-not-allowed" || e.code === "auth/network-request-failed") {
-        const isAdminEmail = email.toLowerCase() === "paulocauan39@gmail.com";
+        const isAdminEmail = cleanEmail === "paulocauan39@gmail.com";
         const fallbackUser: User = {
-          id: "email_user_" + Math.random().toString(36).substring(2, 8),
-          name: isAdminEmail ? "Paulo Cauan" : email.split("@")[0],
-          email,
+          id: "email_user_" + cleanEmail.replace(/[^a-z0-9]/g, "_"),
+          name: isAdminEmail ? "Paulo Cauan" : cleanEmail.split("@")[0],
+          email: cleanEmail,
           role: isAdminEmail ? "ADMIN" : "ALUNO",
           courseOrDept: "Campus Ivaiporã",
           registrationNumber: "2026" + Math.floor(1000 + Math.random() * 9000),
           avatarUrl: "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80",
         };
         setCurrentUser(fallbackUser);
-        addToast(`Login efetuado com sucesso para ${email}!`, "success");
+        addToast(`Sessão iniciada para ${cleanEmail}!`, "success");
         return;
       }
       let errMsg = "Falha no login. Verifique e-mail e senha.";
