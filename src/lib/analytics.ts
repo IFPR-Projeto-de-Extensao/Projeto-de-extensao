@@ -13,7 +13,7 @@ declare global {
 }
 
 // Initialize Google Analytics Global Tracking
-export function initGoogleAnalytics(measurementId = 'G-IFPR123456') {
+export function initGoogleAnalytics(measurementId = 'G-Q2BWFJTJ8K') {
   if (typeof window === 'undefined') return;
 
   // Check if gtag script is already present
