@@ -35,7 +35,7 @@ export const ItemDetailModal: React.FC<ItemDetailModalProps> = ({ item, onClose 
 
   // Gmail send state
   const [emailModalOpen, setEmailModalOpen] = useState(false);
-  const [recipientEmail, setRecipientEmail] = useState("paulocauan39@gmail.com");
+  const [recipientEmail, setRecipientEmail] = useState(item.contactInfo || "achados.ivaipora@ifpr.edu.br");
   const [emailSubject, setEmailSubject] = useState(`[IFPR Achados & Perdidos] Consulta: ${item.title}`);
   const [emailBody, setEmailBody] = useState(`Olá,\n\nEstou entrando em contato a respeito do item "${item.title}" (ID: ${item.id}) cadastrado no Achados e Perdidos do IFPR Campus Ivaiporã.\n\nAtenciosamente,\n${currentUser.name}`);
   const [isSendingEmail, setIsSendingEmail] = useState(false);

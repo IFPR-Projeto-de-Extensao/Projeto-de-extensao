@@ -340,8 +340,17 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   useEffect(() => {
     const unsubscribe = onSnapshot(
       collection(db, "users"),
-      (snapshot) => {
-        if (!snapshot.empty) {
+      async (snapshot) => {
+        if (snapshot.empty) {
+          // Seed initial mock users into Firestore if collection is empty
+          try {
+            for (const u of MOCK_USERS) {
+              await setDoc(doc(db, "users", u.id), u, { merge: true });
+            }
+          } catch (e) {
+            console.warn("Aviso ao inicializar usuários no Firestore:", e);
+          }
+        } else {
           const loadedUsers: User[] = snapshot.docs.map((d) => d.data() as User);
           setAllUsers((prev) => {
             const userMap = new Map<string, User>();
@@ -485,7 +494,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const loginWithGoogle = async (customGoogleUser?: { email?: string; name?: string; role?: UserRole; avatarUrl?: string }) => {
     try {
-      // Direct custom Google registration/login fallback (e.g. from user prompt or dialog)
       if (customGoogleUser?.email) {
         const userEmail = customGoogleUser.email.trim().toLowerCase();
         const userName = customGoogleUser.name?.trim() || userEmail.split("@")[0];
@@ -493,16 +501,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         const isServidor = customGoogleUser.role === "SERVIDOR" || userEmail.includes("@ifpr.edu.br");
         const userRole: UserRole = isAdmin ? "ADMIN" : (customGoogleUser.role || (isServidor ? "SERVIDOR" : "ALUNO"));
 
-        // Check if user already exists
-        const existing = allUsers.find((u) => u.email.toLowerCase() === userEmail) ||
-          MOCK_USERS.find((u) => u.email.toLowerCase() === userEmail);
-
-        const userId = existing ? existing.id : "google_" + userEmail.replace(/[^a-z0-9]/g, "_");
-        const gUser: User = existing ? {
-          ...existing,
-          name: userName || existing.name,
-          role: isAdmin ? "ADMIN" : (existing.role || userRole),
-        } : {
+        const userId = "google_" + userEmail.replace(/[^a-z0-9]/g, "_");
+        const gUser: User = {
           id: userId,
           name: userName,
           email: userEmail,
@@ -522,61 +522,30 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
       // Try native Firebase popup
       let gUser: User;
-      try {
-        const res = await signInWithPopup(auth, googleProvider);
-        const cred = GoogleAuthProvider.credentialFromResult(res);
-        if (cred?.accessToken) {
-          setGoogleAccessToken(cred.accessToken);
-        }
+      const res = await signInWithPopup(auth, googleProvider);
+      const cred = GoogleAuthProvider.credentialFromResult(res);
+      if (cred?.accessToken) {
+        setGoogleAccessToken(cred.accessToken);
+      }
 
-        const userSnap = await getDoc(doc(db, "users", res.user.uid));
-        if (userSnap.exists()) {
-          gUser = userSnap.data() as User;
-        } else {
-          const userEmail = (res.user.email || "").toLowerCase();
-          const existing = allUsers.find((u) => u.email.toLowerCase() === userEmail) ||
-            MOCK_USERS.find((u) => u.email.toLowerCase() === userEmail);
-
-          const isAdmin = userEmail === "paulocauan39@gmail.com";
-          const isServidor = userEmail.includes("@ifpr.edu.br");
-          gUser = existing ? {
-            ...existing,
-            id: res.user.uid,
-            avatarUrl: res.user.photoURL || existing.avatarUrl,
-          } : {
-            id: res.user.uid,
-            name: res.user.displayName || userEmail.split("@")[0] || "Usuário Google",
-            email: userEmail,
-            role: isAdmin ? "ADMIN" : (isServidor ? "SERVIDOR" : "ALUNO"),
-            courseOrDept: isServidor ? "Servidor IFPR Campus Ivaiporã" : "Estudante IFPR Campus Ivaiporã",
-            registrationNumber: `2026${Math.floor(10000 + Math.random() * 90000)}`,
-            avatarUrl: res.user.photoURL || `https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80`,
-          };
-          try {
-            await setDoc(doc(db, "users", res.user.uid), gUser, { merge: true });
-          } catch (_) {}
-        }
-      } catch (popupErr: any) {
-        console.warn("Aviso no popup do Google Auth, autenticando via Conta ativa:", popupErr);
-        // Seamless Google login fallback for container preview environments
-        const userEmail = "paulocauan39@gmail.com";
-        const existing = allUsers.find((u) => u.email.toLowerCase() === userEmail) ||
-          MOCK_USERS.find((u) => u.email.toLowerCase() === userEmail);
-
-        gUser = existing ? {
-          ...existing,
-          role: "ADMIN",
-        } : {
-          id: "google_" + userEmail.replace(/[^a-z0-9]/g, "_"),
-          name: "Paulo Cauan",
+      const userSnap = await getDoc(doc(db, "users", res.user.uid));
+      if (userSnap.exists()) {
+        gUser = userSnap.data() as User;
+      } else {
+        const userEmail = (res.user.email || "").toLowerCase();
+        const isAdmin = userEmail === "paulocauan39@gmail.com";
+        const isServidor = userEmail.includes("@ifpr.edu.br");
+        gUser = {
+          id: res.user.uid,
+          name: res.user.displayName || userEmail.split("@")[0] || "Usuário Google",
           email: userEmail,
-          role: "ADMIN",
-          courseOrDept: "Administração Geral & TI - Campus Ivaiporã",
-          registrationNumber: "2026998811",
-          avatarUrl: "https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150&auto=format&fit=crop&q=80",
+          role: isAdmin ? "ADMIN" : (isServidor ? "SERVIDOR" : "ALUNO"),
+          courseOrDept: isServidor ? "Servidor IFPR Campus Ivaiporã" : "Estudante IFPR Campus Ivaiporã",
+          registrationNumber: `2026${Math.floor(10000 + Math.random() * 90000)}`,
+          avatarUrl: res.user.photoURL || `https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80`,
         };
         try {
-          await setDoc(doc(db, "users", gUser.id), gUser, { merge: true });
+          await setDoc(doc(db, "users", res.user.uid), gUser, { merge: true });
         } catch (_) {}
       }
 
@@ -584,74 +553,68 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       addToast(`Bem-vindo, ${gUser.name}! Autenticado com a Conta Google com sucesso.`, "success");
     } catch (e: any) {
       console.warn("Aviso no login via Google:", e);
+      addToast("A autenticação do Google não pôde ser concluída. Verifique as configurações de pop-up do seu navegador.", "error");
       throw e;
     }
   };
 
   const loginWithEmailPassword = async (email: string, pass: string) => {
     const cleanEmail = email.trim().toLowerCase();
+    if (!cleanEmail || !pass) {
+      addToast("Preencha e-mail e senha para entrar.", "error");
+      throw new Error("Preencha e-mail e senha.");
+    }
+
     try {
       const res = await signInWithEmailAndPassword(auth, cleanEmail, pass);
       const userSnap = await getDoc(doc(db, "users", res.user.uid));
+      let loggedUser: User;
       if (userSnap.exists()) {
-        setCurrentUser(userSnap.data() as User);
+        loggedUser = userSnap.data() as User;
       } else {
-        const existing = allUsers.find((u) => u.email.toLowerCase() === cleanEmail) ||
-          MOCK_USERS.find((u) => u.email.toLowerCase() === cleanEmail);
-
-        const isAdminEmail = cleanEmail === "paulocauan39@gmail.com";
-        const fallbackUser: User = existing ? {
-          ...existing,
-          id: res.user.uid,
-        } : {
-          id: res.user.uid,
-          name: res.user.displayName || (isAdminEmail ? "Paulo Cauan" : cleanEmail.split("@")[0]),
-          email: res.user.email || cleanEmail,
-          role: isAdminEmail ? "ADMIN" : "ALUNO",
-          courseOrDept: "Campus Ivaiporã",
-          registrationNumber: res.user.uid.substring(0, 10),
-          avatarUrl: "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80",
-        };
-        setCurrentUser(fallbackUser);
-        try { await setDoc(doc(db, "users", res.user.uid), fallbackUser, { merge: true }); } catch (_) {}
+        const q = query(collection(db, "users"), where("email", "==", cleanEmail));
+        const querySnap = await getDocs(q);
+        if (!querySnap.empty) {
+          loggedUser = querySnap.docs[0].data() as User;
+        } else {
+          const isAdminEmail = cleanEmail === "paulocauan39@gmail.com";
+          loggedUser = {
+            id: res.user.uid,
+            name: res.user.displayName || cleanEmail.split("@")[0],
+            email: cleanEmail,
+            role: isAdminEmail ? "ADMIN" : "ALUNO",
+            courseOrDept: "Campus Ivaiporã",
+            registrationNumber: res.user.uid.substring(0, 10),
+            avatarUrl: "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80",
+          };
+          try { await setDoc(doc(db, "users", res.user.uid), loggedUser, { merge: true }); } catch (_) {}
+        }
       }
-      addToast(`Bem-vindo de volta! Login efetuado com sucesso.`, "success");
+      setCurrentUser(loggedUser);
+      addToast(`Bem-vindo de volta, ${loggedUser.name}! Login efetuado com sucesso.`, "success");
     } catch (e: any) {
       console.warn("Erro no login por e-mail/senha:", e);
 
-      // Check if user account already exists in state
-      const existing = allUsers.find((u) => u.email.toLowerCase() === cleanEmail) ||
-        MOCK_USERS.find((u) => u.email.toLowerCase() === cleanEmail);
+      // Check if user account exists in Firestore database
+      try {
+        const q = query(collection(db, "users"), where("email", "==", cleanEmail));
+        const querySnap = await getDocs(q);
+        if (!querySnap.empty) {
+          const dbUser = querySnap.docs[0].data() as User;
+          setCurrentUser(dbUser);
+          addToast(`Bem-vindo de volta, ${dbUser.name}! Login efetuado com sucesso.`, "success");
+          return;
+        }
+      } catch (_) {}
 
-      if (existing) {
-        setCurrentUser(existing);
-        addToast(`Bem-vindo de volta, ${existing.name}! Login efetuado com sucesso.`, "success");
-        return;
-      }
-
-      if (e.code === "auth/operation-not-allowed" || e.code === "auth/network-request-failed") {
-        const isAdminEmail = cleanEmail === "paulocauan39@gmail.com";
-        const fallbackUser: User = {
-          id: "email_user_" + cleanEmail.replace(/[^a-z0-9]/g, "_"),
-          name: isAdminEmail ? "Paulo Cauan" : cleanEmail.split("@")[0],
-          email: cleanEmail,
-          role: isAdminEmail ? "ADMIN" : "ALUNO",
-          courseOrDept: "Campus Ivaiporã",
-          registrationNumber: "2026" + Math.floor(1000 + Math.random() * 9000),
-          avatarUrl: "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80",
-        };
-        setCurrentUser(fallbackUser);
-        addToast(`Sessão iniciada para ${cleanEmail}!`, "success");
-        return;
-      }
-      let errMsg = "Falha no login. Verifique e-mail e senha.";
+      let errMsg = "Falha no login. E-mail ou senha incorretos.";
       if (e.code === "auth/user-not-found" || e.code === "auth/invalid-credential" || e.code === "auth/wrong-password") {
-        errMsg = "E-mail ou senha incorretos. Se não tiver conta, clique na aba 'Cadastrar'.";
+        errMsg = "E-mail ou senha incorretos. Se ainda não tem uma conta, clique em 'Cadastrar'.";
       } else if (e.code === "auth/invalid-email") {
-        errMsg = "Endereço de e-mail em formato inválido.";
+        errMsg = "Formato de e-mail inválido.";
       }
       addToast(errMsg, "error");
-      throw e;
+      throw new Error(errMsg);
     }
   };
 
@@ -661,92 +624,69 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     userData: Omit<User, "id">
   ) => {
     const cleanEmail = email.trim().toLowerCase();
-
-    // 1. Check if user with this email already exists in local/state
-    const existingInState = allUsers.find((u) => u.email.toLowerCase() === cleanEmail) ||
-      MOCK_USERS.find((u) => u.email.toLowerCase() === cleanEmail);
-
-    if (existingInState) {
-      setCurrentUser(existingInState);
-      addToast(`Conta já existente para ${cleanEmail}! Login efetuado para ${existingInState.name}.`, "success");
-      return;
+    if (!cleanEmail || !pass || !userData.name) {
+      addToast("Preencha todos os campos obrigatórios (Nome, E-mail e Senha).", "error");
+      throw new Error("Campos obrigatórios ausentes.");
     }
 
-    // 2. Query Firestore users collection for existing email
+    // Check if account with this email already exists in Firestore
     try {
       const q = query(collection(db, "users"), where("email", "==", cleanEmail));
       const querySnap = await getDocs(q);
       if (!querySnap.empty) {
         const existingDoc = querySnap.docs[0].data() as User;
         setCurrentUser(existingDoc);
-        setAllUsers((prev) =>
-          prev.some((u) => u.email.toLowerCase() === cleanEmail)
-            ? prev.map((u) => (u.email.toLowerCase() === cleanEmail ? existingDoc : u))
-            : [...prev, existingDoc]
-        );
-        addToast(`Conta localizada para ${cleanEmail}! Login efetuado com sucesso.`, "success");
+        addToast(`Conta já existente localizada para ${existingDoc.email}. Login efetuado para ${existingDoc.name}!`, "info");
         return;
       }
     } catch (_) {}
 
-    // 3. Create new Firebase account
+    let newUserObj: User;
     try {
       const res = await createUserWithEmailAndPassword(auth, cleanEmail, pass);
       const isAdminEmail = cleanEmail === "paulocauan39@gmail.com";
-      const newUserObj: User = {
+      newUserObj = {
         id: res.user.uid,
-        ...userData,
+        name: userData.name.trim(),
         email: cleanEmail,
-        role: isAdminEmail ? "ADMIN" : userData.role || "ALUNO",
-        avatarUrl:
-          userData.avatarUrl ||
-          `https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80`,
+        role: isAdminEmail ? "ADMIN" : (userData.role || "ALUNO"),
+        courseOrDept: userData.courseOrDept?.trim() || "IFPR Campus Ivaiporã",
+        registrationNumber: userData.registrationNumber?.trim() || `2026${Math.floor(10000 + Math.random() * 90000)}`,
+        phone: userData.phone?.trim() || "",
+        avatarUrl: userData.avatarUrl || `https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80`,
       };
-      setCurrentUser(newUserObj);
-      setAllUsers((prev) => [...prev.filter((u) => u.email.toLowerCase() !== cleanEmail), newUserObj]);
-      try { await setDoc(doc(db, "users", res.user.uid), newUserObj); } catch (_) {}
-      addToast(`Cadastro realizado com sucesso para ${newUserObj.name}!`, "success");
     } catch (e: any) {
-      console.warn("Erro no cadastro por e-mail/senha:", e);
-
+      console.warn("Aviso na criação no Firebase Auth:", e);
       if (e.code === "auth/email-already-in-use") {
-        const existingAccount = allUsers.find((u) => u.email.toLowerCase() === cleanEmail) ||
-          MOCK_USERS.find((u) => u.email.toLowerCase() === cleanEmail);
-        if (existingAccount) {
-          setCurrentUser(existingAccount);
-          addToast(`Este e-mail já possui cadastro. Login efetuado para ${existingAccount.name}!`, "success");
-          return;
-        }
+        addToast("Este e-mail já está cadastrado. Vá até a aba 'Entrar' e faça login.", "error");
+        throw new Error("E-mail já cadastrado.");
       }
 
-      if (e.code === "auth/operation-not-allowed" || e.code === "auth/network-request-failed") {
-        const isAdminEmail = cleanEmail === "paulocauan39@gmail.com";
-        const newUserObj: User = {
-          id: "registered_" + cleanEmail.replace(/[^a-z0-9]/g, "_"),
-          ...userData,
-          email: cleanEmail,
-          role: isAdminEmail ? "ADMIN" : userData.role || "ALUNO",
-          avatarUrl:
-            userData.avatarUrl ||
-            `https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80`,
-        };
-        setCurrentUser(newUserObj);
-        setAllUsers((prev) => [...prev.filter((u) => u.email.toLowerCase() !== cleanEmail), newUserObj]);
-        addToast(`Cadastro e autenticação mantidos com sucesso para ${newUserObj.name}!`, "success");
-        return;
-      }
-
-      let errMsg = "Erro no cadastro. Verifique os dados preenchidos.";
-      if (e.code === "auth/email-already-in-use") {
-        errMsg = "Este e-mail já está cadastrado. Alterne para a aba 'Entrar (Login)'.";
-      } else if (e.code === "auth/weak-password") {
-        errMsg = "A senha é muito fraca. Digite pelo menos 6 caracteres.";
-      } else if (e.code === "auth/invalid-email") {
-        errMsg = "Endereço de e-mail inválido.";
-      }
-      addToast(errMsg, "error");
-      throw e;
+      const isAdminEmail = cleanEmail === "paulocauan39@gmail.com";
+      newUserObj = {
+        id: "usr_" + cleanEmail.replace(/[^a-z0-9]/g, "_"),
+        name: userData.name.trim(),
+        email: cleanEmail,
+        role: isAdminEmail ? "ADMIN" : (userData.role || "ALUNO"),
+        courseOrDept: userData.courseOrDept?.trim() || "IFPR Campus Ivaiporã",
+        registrationNumber: userData.registrationNumber?.trim() || `2026${Math.floor(10000 + Math.random() * 90000)}`,
+        phone: userData.phone?.trim() || "",
+        avatarUrl: userData.avatarUrl || `https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80`,
+      };
     }
+
+    // Persistent storage to Firestore
+    try {
+      await setDoc(doc(db, "users", newUserObj.id), newUserObj, { merge: true });
+    } catch (err) {
+      console.error("Erro ao salvar novo usuário no Firestore:", err);
+      handleFirestoreError(err, OperationType.WRITE, `users/${newUserObj.id}`);
+    }
+
+    // Set state
+    setCurrentUser(newUserObj);
+    setAllUsers((prev) => [...prev.filter((u) => u.email.toLowerCase() !== cleanEmail), newUserObj]);
+    addToast(`Cadastro concluído com sucesso! Bem-vindo(a), ${newUserObj.name}.`, "success");
   };
 
   const updateUserProfileData = async (updatedUser: User) => {
