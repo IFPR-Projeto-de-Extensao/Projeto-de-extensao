@@ -253,7 +253,7 @@ export const Navbar: React.FC = () => {
             </button>
 
             {/* Login / Cadastro Button */}
-            {!firebaseUser ? (
+            {currentUser.id === "guest_visitor" && !firebaseUser ? (
               <button
                 onClick={() => setAuthModalOpen(true)}
                 className="px-3 py-1.5 rounded-xl bg-[#00843D] hover:bg-[#006830] text-white text-xs font-bold transition-all shadow-xs flex items-center space-x-1.5"
@@ -266,7 +266,7 @@ export const Navbar: React.FC = () => {
                 onClick={() => setAuthModalOpen(true)}
                 className="hidden sm:flex px-2.5 py-1 rounded-xl bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 text-xs font-bold border border-emerald-500/20 hover:bg-emerald-500 hover:text-white transition-colors"
               >
-                Conta Ativa
+                {currentUser.name} ({currentUser.role})
               </button>
             )}
 
