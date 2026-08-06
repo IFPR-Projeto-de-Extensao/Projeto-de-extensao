@@ -15,16 +15,20 @@ googleProvider.addScope('https://www.googleapis.com/auth/gmail.readonly');
 
 export let firebaseAnalytics: Analytics | null = null;
 if (typeof window !== 'undefined') {
-  isAnalyticsSupported().then((supported) => {
-    if (supported) {
-      try {
-        firebaseAnalytics = getAnalytics(app);
-        console.log("Firebase Analytics inicializado com sucesso.");
-      } catch (err) {
-        console.warn("Firebase Analytics não disponível neste ambiente:", err);
+  isAnalyticsSupported()
+    .then((supported) => {
+      if (supported) {
+        try {
+          firebaseAnalytics = getAnalytics(app);
+          console.log("Firebase Analytics inicializado com sucesso.");
+        } catch (err) {
+          // Analytics suppressed or unneeded in current domain environment
+        }
       }
-    }
-  });
+    })
+    .catch(() => {
+      // Ignored non-critical analytics error
+    });
 }
 
 export function logFirebaseEvent(eventName: string, eventParams?: Record<string, any>) {

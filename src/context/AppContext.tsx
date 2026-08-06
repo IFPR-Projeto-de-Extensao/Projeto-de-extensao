@@ -587,7 +587,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       addToast(`Bem-vindo, ${verifiedUser.name}! Autenticado com a Conta Google com sucesso.`, "success");
     } catch (e: any) {
       console.warn("Aviso no login via Google:", e);
-      addToast("A autenticação do Google não pôde ser concluída. Verifique seu navegador.", "error");
+      if (e?.code === "auth/unauthorized-domain") {
+        const hostname = typeof window !== "undefined" ? window.location.hostname : "seu domínio";
+        addToast(`Domínio '${hostname}' não autorizado no Firebase Console. Adicione-o em Authentication > Configurações > Domínios Autorizados.`, "error");
+      } else {
+        addToast("A autenticação do Google não pôde ser concluída. Verifique seu navegador.", "error");
+      }
       throw e;
     }
   };

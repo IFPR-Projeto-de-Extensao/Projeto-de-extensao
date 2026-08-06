@@ -82,7 +82,11 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
       onClose();
     } catch (err: any) {
       console.error(err);
-      setErrorMsg("Erro ao entrar com Google: " + (err.message || "Tente novamente."));
+      if (err?.code === "auth/unauthorized-domain") {
+        setErrorMsg(`Domínio '${window.location.hostname}' não está autorizado no Firebase Console. Você pode utilizar o Acesso de Demonstração ou entrar com seu e-mail do Google abaixo.`);
+      } else {
+        setErrorMsg("Erro ao entrar com Google: " + (err.message || "Tente novamente."));
+      }
     } finally {
       setLoading(false);
     }
