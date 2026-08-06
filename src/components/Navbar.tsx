@@ -18,6 +18,7 @@ import {
   GraduationCap,
   Building2,
   LogIn,
+  LogOut,
   Sparkles,
 } from "lucide-react";
 
@@ -35,6 +36,7 @@ export const Navbar: React.FC = () => {
     setRegisterTypeSelection,
     setAuthModalOpen,
     firebaseUser,
+    logout,
   } = useApp();
 
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
@@ -252,7 +254,7 @@ export const Navbar: React.FC = () => {
               </span>
             </button>
 
-            {/* Login / Cadastro Button */}
+            {/* Login / Cadastro or User Profile & Logout */}
             {currentUser.id === "guest_visitor" && !firebaseUser ? (
               <button
                 onClick={() => setAuthModalOpen(true)}
@@ -262,12 +264,22 @@ export const Navbar: React.FC = () => {
                 <span>Entrar / Cadastrar</span>
               </button>
             ) : (
-              <button
-                onClick={() => setAuthModalOpen(true)}
-                className="hidden sm:flex px-2.5 py-1 rounded-xl bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 text-xs font-bold border border-emerald-500/20 hover:bg-emerald-500 hover:text-white transition-colors"
-              >
-                {currentUser.name} ({currentUser.role})
-              </button>
+              <div className="flex items-center space-x-1.5">
+                <button
+                  onClick={() => handleNavClick("profile")}
+                  className="hidden sm:flex items-center space-x-1 px-2.5 py-1 rounded-xl bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 text-xs font-bold border border-emerald-500/20 hover:bg-emerald-500 hover:text-white transition-colors"
+                >
+                  <span>{currentUser.name} ({currentUser.role})</span>
+                </button>
+                <button
+                  onClick={logout}
+                  title="Sair da Conta (Logout)"
+                  className="px-2.5 py-1 rounded-xl bg-red-500/10 text-red-600 dark:text-red-400 hover:bg-red-500 hover:text-white text-xs font-bold transition-all border border-red-500/20 flex items-center space-x-1"
+                >
+                  <LogOut className="w-3.5 h-3.5" />
+                  <span className="hidden md:inline">Sair</span>
+                </button>
+              </div>
             )}
 
             {/* Profile Avatar Trigger */}
@@ -414,6 +426,30 @@ export const Navbar: React.FC = () => {
             <UserCheck className="w-5 h-5 text-[#00843D]" />
             <span>Meu Perfil ({currentUser.role})</span>
           </button>
+
+          {(currentUser.id !== "guest_visitor" || firebaseUser) ? (
+            <button
+              onClick={() => {
+                logout();
+                setMobileMenuOpen(false);
+              }}
+              className="w-full flex items-center space-x-3 px-3 py-2.5 rounded-xl text-sm font-bold bg-red-500/10 text-red-600 dark:text-red-400 border border-red-500/20 hover:bg-red-500 hover:text-white transition-colors"
+            >
+              <LogOut className="w-5 h-5" />
+              <span>Sair da Conta ({currentUser.name})</span>
+            </button>
+          ) : (
+            <button
+              onClick={() => {
+                setAuthModalOpen(true);
+                setMobileMenuOpen(false);
+              }}
+              className="w-full flex items-center space-x-3 px-3 py-2.5 rounded-xl text-sm font-bold bg-[#00843D] text-white transition-colors shadow-xs"
+            >
+              <LogIn className="w-5 h-5" />
+              <span>Entrar / Cadastrar</span>
+            </button>
+          )}
         </div>
       )}
     </header>

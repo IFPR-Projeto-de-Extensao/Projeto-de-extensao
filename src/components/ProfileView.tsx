@@ -17,6 +17,7 @@ import {
   Phone,
   Lock,
   Shield,
+  LogOut,
 } from "lucide-react";
 
 export const ProfileView: React.FC = () => {
@@ -99,12 +100,13 @@ export const ProfileView: React.FC = () => {
                 <span>{isEditing ? "Cancelar" : "Editar Perfil"}</span>
               </button>
 
-              {firebaseUser ? (
+              {(currentUser.id !== "guest_visitor" || firebaseUser) ? (
                 <button
                   onClick={logout}
-                  className="px-3 py-1.5 rounded-xl bg-red-500/10 text-red-600 dark:text-red-400 text-xs font-bold hover:bg-red-500 hover:text-white transition-colors"
+                  className="px-3.5 py-1.5 rounded-xl bg-red-500/10 text-red-600 dark:text-red-400 text-xs font-bold hover:bg-red-500 hover:text-white transition-colors flex items-center gap-1.5 border border-red-500/20"
                 >
-                  Sair da Conta
+                  <LogOut className="w-3.5 h-3.5" />
+                  <span>Sair da Conta</span>
                 </button>
               ) : (
                 <button

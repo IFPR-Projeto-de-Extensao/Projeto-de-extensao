@@ -24,6 +24,8 @@ import {
 } from "firebase/firestore";
 import {
   signInWithPopup,
+  signInWithRedirect,
+  getRedirectResult,
   signInWithEmailAndPassword,
   createUserWithEmailAndPassword,
   signOut,
@@ -244,6 +246,98 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   };
 
+  // Helper to verify and sync user document in Firestore using email as unique key
+  const verifyAndSyncUserDoc = async (
+    fbUser: FirebaseUser,
+    extraData?: { name?: string; role?: UserRole; avatarUrl?: string }
+  ): Promise<User> => {
+    const userEmail = (fbUser.email || "").toLowerCase();
+
+    // 1. Direct check in 'users' collection by fbUser.uid
+    const uidRef = doc(db, "users", fbUser.uid);
+    try {
+      const userSnap = await getDoc(uidRef);
+      if (userSnap.exists()) {
+        const existingData = userSnap.data() as User;
+        const isAdmin = userEmail === "paulocauan39@gmail.com";
+        const updatedUser: User = {
+          ...existingData,
+          role: isAdmin ? "ADMIN" : (existingData.role || "ALUNO"),
+          avatarUrl: fbUser.photoURL || extraData?.avatarUrl || existingData.avatarUrl,
+        };
+        await setDoc(uidRef, updatedUser, { merge: true });
+        return updatedUser;
+      }
+    } catch (e) {
+      console.warn("Aviso ao buscar por UID no Firestore:", e);
+    }
+
+    // 2. Explicitly query 'users' collection using email as a unique key to prevent duplicate account creation
+    if (userEmail) {
+      try {
+        const q = query(collection(db, "users"), where("email", "==", userEmail));
+        const querySnap = await getDocs(q);
+        if (!querySnap.empty) {
+          const existingData = querySnap.docs[0].data() as User;
+          const isAdmin = userEmail === "paulocauan39@gmail.com";
+          const updatedUser: User = {
+            ...existingData,
+            role: isAdmin ? "ADMIN" : (existingData.role || "ALUNO"),
+            avatarUrl: fbUser.photoURL || extraData?.avatarUrl || existingData.avatarUrl,
+          };
+          await setDoc(doc(db, "users", existingData.id), updatedUser, { merge: true });
+          if (existingData.id !== fbUser.uid) {
+            try {
+              await setDoc(uidRef, updatedUser, { merge: true });
+            } catch (_) {}
+          }
+          return updatedUser;
+        }
+      } catch (e) {
+        console.warn("Aviso ao verificar e-mail único no Firestore:", e);
+      }
+    }
+
+    // 3. Create new user document in Firestore if non-existent
+    const isAdmin = userEmail === "paulocauan39@gmail.com";
+    const isServidor = extraData?.role === "SERVIDOR" || userEmail.includes("@ifpr.edu.br");
+    const newUser: User = {
+      id: fbUser.uid,
+      name: fbUser.displayName || extraData?.name || userEmail.split("@")[0] || "Usuário IFPR",
+      email: userEmail,
+      role: isAdmin ? "ADMIN" : (extraData?.role || (isServidor ? "SERVIDOR" : "ALUNO")),
+      courseOrDept: isServidor ? "Servidor IFPR Campus Ivaiporã" : "Estudante IFPR Campus Ivaiporã",
+      registrationNumber: `2026${Math.floor(10000 + Math.random() * 90000)}`,
+      avatarUrl: fbUser.photoURL || extraData?.avatarUrl || `https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80`,
+    };
+
+    try {
+      await setDoc(uidRef, newUser, { merge: true });
+    } catch (err) {
+      console.error("Erro ao gravar novo registro no Firestore:", err);
+    }
+    return newUser;
+  };
+
+  // Process getRedirectResult for Google auth redirects
+  useEffect(() => {
+    getRedirectResult(auth)
+      .then(async (result) => {
+        if (result?.user) {
+          const cred = GoogleAuthProvider.credentialFromResult(result);
+          if (cred?.accessToken) {
+            setGoogleAccessToken(cred.accessToken);
+          }
+          const verifiedUser = await verifyAndSyncUserDoc(result.user);
+          setCurrentUser(verifiedUser);
+          addToast(`Bem-vindo(a), ${verifiedUser.name}! Autenticado via Google.`, "success");
+        }
+      })
+      .catch((err) => {
+        console.warn("Aviso no getRedirectResult:", err);
+      });
+  }, []);
+
   // Listen to Firebase Auth
   useEffect(() => {
     let unsubscribeProfileSnapshot: (() => void) | null = null;
@@ -258,69 +352,21 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       }
 
       if (fbUser) {
-        const userEmail = (fbUser.email || "").toLowerCase();
-        const isAdminEmail =
-          userEmail === "paulocauan39@gmail.com" || userEmail.includes("carlos");
+        const verified = await verifyAndSyncUserDoc(fbUser);
+        setCurrentUser(verified);
 
-        const userRef = doc(db, "users", fbUser.uid);
-
-        // Listen in real-time to the user document in Firestore for seamless persistence
+        const userRef = doc(db, "users", verified.id);
         unsubscribeProfileSnapshot = onSnapshot(
           userRef,
-          async (userSnap) => {
+          (userSnap) => {
             if (userSnap.exists()) {
               const userData = userSnap.data() as User;
-              if (isAdminEmail && userData.role !== "ADMIN") {
-                userData.role = "ADMIN";
-                try {
-                  await setDoc(userRef, { role: "ADMIN" }, { merge: true });
-                } catch (_) {}
-              }
               setCurrentUser(userData);
               setAllUsers((prev) =>
-                prev.some((u) => u.id === userData.id || u.email.toLowerCase() === userEmail)
-                  ? prev.map((u) => (u.email.toLowerCase() === userEmail ? userData : u))
+                prev.some((u) => u.id === userData.id || u.email.toLowerCase() === userData.email.toLowerCase())
+                  ? prev.map((u) => (u.email.toLowerCase() === userData.email.toLowerCase() ? userData : u))
                   : [...prev, userData]
               );
-            } else {
-              // Check if account already exists with this email in Firestore query
-              let existing: User | undefined;
-              try {
-                const q = query(collection(db, "users"), where("email", "==", userEmail));
-                const querySnap = await getDocs(q);
-                if (!querySnap.empty) {
-                  existing = querySnap.docs[0].data() as User;
-                }
-              } catch (_) {}
-
-              if (!existing) {
-                existing = allUsers.find((u) => u.email.toLowerCase() === userEmail) ||
-                  MOCK_USERS.find((u) => u.email.toLowerCase() === userEmail);
-              }
-
-              const userObj: User = existing ? {
-                ...existing,
-                id: fbUser.uid,
-                avatarUrl: fbUser.photoURL || existing.avatarUrl,
-              } : {
-                id: fbUser.uid,
-                name: fbUser.displayName || (isAdminEmail ? "Paulo Cauan" : "Usuário IFPR"),
-                email: fbUser.email || userEmail,
-                role: isAdminEmail ? "ADMIN" : userEmail.includes("maria") ? "SERVIDOR" : "ALUNO",
-                courseOrDept: isAdminEmail ? "Administração de TI & Campus Ivaiporã" : "Campus Ivaiporã",
-                registrationNumber: fbUser.uid.substring(0, 10),
-                avatarUrl: fbUser.photoURL || "https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80",
-              };
-
-              setCurrentUser(userObj);
-              setAllUsers((prev) =>
-                prev.some((u) => u.email.toLowerCase() === userEmail)
-                  ? prev.map((u) => (u.email.toLowerCase() === userEmail ? userObj : u))
-                  : [...prev, userObj]
-              );
-              try {
-                await setDoc(userRef, userObj, { merge: true });
-              } catch (_) {}
             }
           },
           (e) => {
@@ -520,40 +566,28 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         return;
       }
 
-      // Try native Firebase popup
-      let gUser: User;
-      const res = await signInWithPopup(auth, googleProvider);
+      let res;
+      try {
+        res = await signInWithPopup(auth, googleProvider);
+      } catch (popupError: any) {
+        if (popupError.code === "auth/popup-blocked" || popupError.code === "auth/popup-closed-by-user") {
+          await signInWithRedirect(auth, googleProvider);
+          return;
+        }
+        throw popupError;
+      }
+
       const cred = GoogleAuthProvider.credentialFromResult(res);
       if (cred?.accessToken) {
         setGoogleAccessToken(cred.accessToken);
       }
 
-      const userSnap = await getDoc(doc(db, "users", res.user.uid));
-      if (userSnap.exists()) {
-        gUser = userSnap.data() as User;
-      } else {
-        const userEmail = (res.user.email || "").toLowerCase();
-        const isAdmin = userEmail === "paulocauan39@gmail.com";
-        const isServidor = userEmail.includes("@ifpr.edu.br");
-        gUser = {
-          id: res.user.uid,
-          name: res.user.displayName || userEmail.split("@")[0] || "Usuário Google",
-          email: userEmail,
-          role: isAdmin ? "ADMIN" : (isServidor ? "SERVIDOR" : "ALUNO"),
-          courseOrDept: isServidor ? "Servidor IFPR Campus Ivaiporã" : "Estudante IFPR Campus Ivaiporã",
-          registrationNumber: `2026${Math.floor(10000 + Math.random() * 90000)}`,
-          avatarUrl: res.user.photoURL || `https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80`,
-        };
-        try {
-          await setDoc(doc(db, "users", res.user.uid), gUser, { merge: true });
-        } catch (_) {}
-      }
-
-      setCurrentUser(gUser);
-      addToast(`Bem-vindo, ${gUser.name}! Autenticado com a Conta Google com sucesso.`, "success");
+      const verifiedUser = await verifyAndSyncUserDoc(res.user);
+      setCurrentUser(verifiedUser);
+      addToast(`Bem-vindo, ${verifiedUser.name}! Autenticado com a Conta Google com sucesso.`, "success");
     } catch (e: any) {
       console.warn("Aviso no login via Google:", e);
-      addToast("A autenticação do Google não pôde ser concluída. Verifique as configurações de pop-up do seu navegador.", "error");
+      addToast("A autenticação do Google não pôde ser concluída. Verifique seu navegador.", "error");
       throw e;
     }
   };

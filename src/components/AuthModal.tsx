@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { X, Mail, Lock, User as UserIcon, Shield, GraduationCap, Building2, Phone, FileText, Sparkles, LogIn, UserPlus } from "lucide-react";
+import { X, Mail, Lock, User as UserIcon, Shield, GraduationCap, Building2, Phone, FileText, Sparkles, LogIn, UserPlus, LogOut } from "lucide-react";
 import { useApp } from "../context/AppContext";
 import { UserRole } from "../types";
 
@@ -9,7 +9,7 @@ interface AuthModalProps {
 }
 
 export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
-  const { loginWithGoogle, loginWithEmailPassword, registerWithEmailPassword } = useApp();
+  const { loginWithGoogle, loginWithEmailPassword, registerWithEmailPassword, logout, currentUser, firebaseUser } = useApp();
   const [mode, setMode] = useState<"login" | "register">("login");
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
@@ -146,6 +146,33 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
 
         {/* Body Content */}
         <div className="p-6 overflow-y-auto space-y-5">
+          {(currentUser.id !== "guest_visitor" || firebaseUser) && (
+            <div className="p-3.5 rounded-2xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-500/30 flex items-center justify-between">
+              <div className="space-y-0.5">
+                <p className="text-[11px] font-bold text-emerald-800 dark:text-emerald-300">
+                  Sessão Ativa ({currentUser.role})
+                </p>
+                <p className="text-xs font-bold text-neutral-900 dark:text-white">
+                  {currentUser.name}
+                </p>
+                <p className="text-[11px] text-neutral-500 dark:text-neutral-400">
+                  {currentUser.email}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={async () => {
+                  await logout();
+                  onClose();
+                }}
+                className="px-3 py-1.5 rounded-xl bg-red-500/10 hover:bg-red-500 text-red-600 dark:text-red-400 hover:text-white text-xs font-bold transition-all border border-red-500/20 flex items-center gap-1"
+              >
+                <LogOut className="w-3.5 h-3.5" />
+                <span>Sair</span>
+              </button>
+            </div>
+          )}
+
           {errorMsg && (
             <div className="p-3.5 rounded-xl bg-red-500/10 border border-red-500/20 text-red-600 dark:text-red-400 text-xs font-semibold">
               {errorMsg}
